@@ -40,13 +40,11 @@ namespace ProjekatI
             _isRunning = true;
             _listener.Start();
 
-            //Console.WriteLine($"Server is listening on port: {_port}");
-            //Console.WriteLine($"Root folder: {_rootPath}");
-
             Logger.Log($"Server is listening on port: {_port}");
             Logger.Log($"Root folder: {_rootPath}");
+            Logger.Log("Press Enter for server shutdown...");
 
-            while(_isRunning)
+            while (_isRunning)
             {
                 try
                 {
@@ -57,18 +55,35 @@ namespace ProjekatI
                     //Respone predstavlja odgovor servera.
                     HttpListenerContext context = _listener.GetContext();
 
-                    _activeRequests.AddCount(); //Povecavamo broj aktivnih zahteva/niti
-                    Logger.Log("New client request received");
+                    //Povecavamo broj aktivnih zahteva/niti
+                    // Try za dodatnu sigurnost: 
+                    // da ne dobijemo exception kad je event već 0, već samo false
+                    if (_activeRequests.TryAddCount())
+                    {
+                        Logger.Log("New client request received");
 
-                    //Uzmi jednu nit iz thread pool-a
-                    //Nit izvrsava funkciju HandleRequest
-                    //Ulazni parametar funkcije - context
-                    ThreadPool.QueueUserWorkItem(HandleRequest, context);
+                        //Uzmi jednu nit iz thread pool-a
+                        //Nit izvrsava funkciju HandleRequest
+                        //Ulazni parametar funkcije - context
+                        ThreadPool.QueueUserWorkItem(HandleRequest, context);
+                    }
+                    else
+                    {
+                        // gašenje servera, svi novi zahtevi koji mogu da pristignu u tom trenutku se odbijaju
+                        context.Response.StatusCode = (int)HttpStatusCode.ServiceUnavailable;
+                        context.Response.Close();
+                    }
                 }
-                catch(Exception ec)
+                // pri pozivu Stop() dolazi se u ovaj blok
+                catch (HttpListenerException) when (!_isRunning)
                 {
-                    //Console.WriteLine($"Error: {ec.Message}");
-                    Logger.Log($"Error in listener: {ec.Message}", "ERROR");
+                    break;
+                }
+                catch (Exception ec)
+                {
+                    // da ne ispisujemo exception kad želimo da se server isključi
+                    if (_isRunning)
+                        Logger.Log($"Error in listener: {ec.Message}", "ERROR");
                 }
             }
         }
@@ -87,54 +102,90 @@ namespace ProjekatI
                 // http://localhost:5050/test.txt => ovde mi uzimamo sadrzaj posle znaka "/", sto je ime fajla koji obadjujemo
                 string fileName = context.Request.Url.AbsolutePath.TrimStart('/');
 
+                // browser automatski traži ovaj fajl, ne obrađujemo ga
+                if (string.Equals(fileName, "favicon.ico", StringComparison.OrdinalIgnoreCase))
+                {
+                    context.Response.Close();
+                    return;
+                }
+
                 Logger.Log($"Request started for file: {fileName}");
 
-                if(string.IsNullOrEmpty(fileName))
+                if (string.IsNullOrEmpty(fileName))
                 {
                     Logger.Log($"Empty file name in request!", "WARNING");
                     SendErrorResponse(context, "Please define file name in URL request!", HttpStatusCode.BadRequest);
                     return;
                 }
 
-                byte[] responseData = _fileConverter.ProcessFile(fileName);
-                string extension = Path.GetExtension(fileName).ToLower();
-
-                if(extension == ".bin")
+                byte[] responseData;
+                // obavezno se ime fajlova prevara u mala slova!
+                if (_cache.TryGet(fileName.ToLower(), out var cached))
                 {
-                    //Binarni fajl smo pretvorili u Base64 tekst, pa kazemo browseru da je to tekst
-                    context.Response.ContentType = "text/plain; charset=utf-8";
-                }
-                else if(extension == ".txt")
-                {
-                    //Tekst smo pretvorili u binarne podatke, pa saljemo kao stream
-                    context.Response.ContentType = "application/octet-stream";
-                    //Eksplicitno kazemo browser-u da se fajl preuzme sa ekstenzijom .bin
-                    context.Response.AddHeader("Content-Disposition", "attachment; filename=" + Path.GetFileNameWithoutExtension(fileName) + ".bin");
+                    Logger.Log($"Cache HIT for: {fileName}");
+                    responseData = cached.Data;
+                    context.Response.ContentType = cached.ContentType;
+                    if (!string.IsNullOrEmpty(cached.DownloadName))
+                    {
+                        context.Response.AddHeader("Content-Disposition", "attachment; filename=" + cached.DownloadName);
+                    }
                 }
                 else
                 {
-                    context.Response.ContentType = "text/plain";
+                    Logger.Log($"Cache MISS for: {fileName}");
+                    responseData = _fileConverter.ProcessFile(fileName);
+                    string extension = Path.GetExtension(fileName).ToLower();
+
+                    CachedResponse toCache;
+                    if (extension == ".bin")
+                    {
+                        //Binarni fajl smo pretvorili u Base64 tekst, pa kazemo browseru da je to tekst
+                        context.Response.ContentType = "text/plain; charset=utf-8";
+                        toCache = new CachedResponse(responseData, context.Response.ContentType);
+                    }
+                    else //(extension == ".txt")
+                    {
+                        //Tekst smo pretvorili u binarne podatke, pa saljemo kao stream
+                        context.Response.ContentType = "application/octet-stream";
+                        //Eksplicitno kazemo browser-u da se fajl preuzme sa ekstenzijom .bin
+                        string downloadName = Path.ChangeExtension(fileName, ".bin");
+
+                        context.Response.AddHeader("Content-Disposition", "attachment; filename=" + downloadName);
+                        toCache = new CachedResponse(responseData, context.Response.ContentType, downloadName);
+                    }
+
+                    _cache.Add(fileName.ToLower(), toCache);
+                    //else
+                    //{
+                    // todo: da li se ikada dođe do ovde, ako se iznad baci exception za nepostojeći fajl?
+                    //     context.Response.ContentType = "text/plain";
+                    //     SendErrorResponse(context, "Invalid file extension!", HttpStatusCode.BadRequest);
+                    // }
                 }
 
                 //Slanje odgovora
                 context.Response.ContentLength64 = responseData.Length;
                 context.Response.StatusCode = (int)HttpStatusCode.OK;
 
-                using(var output = context.Response.OutputStream)
+                using (var output = context.Response.OutputStream)
                 {
                     output.Write(responseData, 0, responseData.Length);
                 }
 
-                //Console.WriteLine($"File: {fileName}");
                 Logger.Log($"File succesfully processed: {fileName}!");
 
             }
-            catch(FileNotFoundException ec)
+            catch (NotSupportedException ec)
+            {
+                Logger.Log($"Error on server side: {ec.Message}", "ERROR");
+                SendErrorResponse(context, "Invalid file extension!", HttpStatusCode.NotFound);
+            }
+            catch (FileNotFoundException ec)
             {
                 Logger.Log($"File not found: {ec.Message}", "ERROR");
                 SendErrorResponse(context, ec.Message, HttpStatusCode.NotFound);
             }
-            catch(Exception ec)
+            catch (Exception ec)
             {
                 //Console.WriteLine(ec.Message);
                 Logger.Log($"Error on server side: {ec.Message}", "ERROR");
@@ -146,7 +197,7 @@ namespace ProjekatI
 
                 Logger.Log($"Request finished in {stopwatch.ElapsedMilliseconds} ms!");
 
-                _activeRequests.Signal(); //Nit obavestava da se zavrsila obradu zahteva (smanjuje se broj trenutno aktivnih zahteva)
+                _activeRequests.Signal(); //Nit obavestava da se zavrsila obradu zahteva (smanjuje se broj trenutno aktivnih zahteva, čak i ako nešto pođe po zlu)
                 context.Response.Close();
             }
         }
@@ -167,7 +218,7 @@ namespace ProjekatI
                     output.Write(errorData, 0, errorData.Length);
                 }
             }
-            catch(Exception ec)
+            catch (Exception ec)
             {
                 //Ako slanje greske ne uspe (npr. klijent je u mdjuvremenu zatvorio browser),
                 //samo ispisujemo u konzolu servera da ne bi doslo do pucanja aplikacije
@@ -177,20 +228,26 @@ namespace ProjekatI
         }
 
         //gracefull shutdown varijanta metode
-        public void Stop() 
+        public void Stop()
         {
-            _isRunning = false; 
-            _listener.Stop(); //Server vise nece da prihvata nove zahteve
+            if (!_isRunning)
+                return;
+
+            _isRunning = false;
+            Logger.Log("Shutting down... waiting for active requests to finish.");
+            // server više ne prihvata nove zahteve
+            _listener.Stop();
 
             _activeRequests.Signal(); //Obavestavamo da se i poslednja nit gasi
+            bool gracefulShutdown = _activeRequests.Wait(5000);
 
-            //Console.WriteLine("Server is closing in 1 second max!");
-            Logger.Log("Server is closing in 1 second max!"); //Da li je to previse malo vremena?
-            _activeRequests.Wait(1000); //Definise maksimalno vreme za koje server bi trebao da se ugasi, ali moze da se ugasi i dosta ranije
-            //Console.WriteLine("Server shutdown completed!");
-            Logger.Log("Server shutdown completed!");
+            if (gracefulShutdown)
+                Logger.Log("Server shutdown completed gracefully!");
+            else
+                // može doći do terminiranja nekih zahteva
+                Logger.Log("Shutdown timed out.", "WARNING");
+
+            _listener.Close();
         }
-
-
     }
 }

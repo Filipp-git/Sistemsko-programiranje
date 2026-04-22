@@ -12,10 +12,10 @@ namespace ProjekatI
         {
             //Ovim se osiguravamo da ce svaka nit, bez prekidanja, da ispise na konzoli
             //To nam mozda nije ni potrebno za mali broj niti, ali za veliki da
-            lock(lockObject)
+            lock (lockObject)
             {
                 Console.WriteLine(
-                    $"[{DateTime.Now:HH:mm:ss}] " + 
+                    $"[{DateTime.Now:HH:mm:ss}] " +
                     $"[Thread] {Thread.CurrentThread.ManagedThreadId} " +
                     $"[{level}] {message}!"
                 );

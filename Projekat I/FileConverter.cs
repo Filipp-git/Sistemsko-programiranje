@@ -15,28 +15,30 @@ namespace ProjekatI
 
         public byte[] ProcessFile(string fileName)
         {
-            string fullPath = Path.Combine(_rootPath, fileName);
+            // todo: obezbediti da neko ne može sluuučajno da pristupi npr. system32 :)
+            string safeFileName = Path.GetFileName(fileName);
+            string fullPath = Path.Combine(_rootPath, safeFileName);
 
-            if(!File.Exists(fullPath))
+            if (!File.Exists(fullPath))
                 throw new FileNotFoundException($"File {fileName} not found");
-            
-            byte[] data = File.ReadAllBytes(fullPath); 
+
+            byte[] data = File.ReadAllBytes(fullPath);
             string extension = Path.GetExtension(fullPath).ToLower();
 
             //Koneverzija bin=>txt
-            if(extension == ".bin")
+            if (extension == ".bin")
             {
                 //Pretvaramo binarne podatke u Base64 (tekstualna reprezentacija binarnih podataka) string za prikaz u browseru
                 string base64String = Convert.ToBase64String(data);
                 //Console.WriteLine($".bin=>.txt on file: {fileName}");
-                Logger.Log($".bin=>.txt conversion: {fileName}");
+                Logger.Log($".bin=>.txt conversion: {safeFileName}");
                 return Encoding.UTF8.GetBytes(base64String);
             }
 
             //Koneverzija txt=>bin
-            if(extension == ".txt")
+            else if (extension == ".txt")
             {
-                try 
+                try
                 {
                     /* => preuzima se kao binarni fajl, ali je sadrzaj tekstualni fajl
                     //Uzimamo tekst iz fajla
@@ -64,8 +66,12 @@ namespace ProjekatI
                     return data;
                 }
             }
-
-            return data; //Nadamo se da nikada nece da dodje do ovog dela
+            // todo: ukoliko ekstenzija fajla nije validna, treba vratiti grešku
+            throw new NotSupportedException($"Extension {extension} is not supported.");
+            // else
+            // {
+            //     return data; //Nadamo se da nikada nece da dodje do ovog dela
+            // }                
         }
     }
 }

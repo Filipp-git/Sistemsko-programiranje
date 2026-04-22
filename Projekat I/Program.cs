@@ -10,7 +10,7 @@
             Thread serverThread = new Thread(server.Start);
             serverThread.Start();
 
-            Console.ReadLine(); //Ovo nam daje efekat da se serve gasi pritiskom na Enter
+            Console.ReadLine(); //Ovo nam daje efekat da se server gasi pritiskom na Enter
 
             server.Stop();
             serverThread.Join();
