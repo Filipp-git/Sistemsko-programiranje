@@ -1,0 +1,7 @@
+1. Kes
+2. Testiranje - mozda neka skripta koja ce da simulira korisnike
+3. Proveriti konveriju fajlova - nesto mi je tu cudno, a nisam uspeo sam da resim
+
+*Napomena:
+=>Kada se preuzme fajl oblika .bin i pokusa njegovo otvranje (npr: Notepad++),
+sadrzaj fajl se prikaze u teksualnom obliku, sto znaci da mi nikada ne znamo da li se on stvarno preveo u .bin.
