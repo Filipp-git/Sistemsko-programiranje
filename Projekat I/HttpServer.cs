@@ -62,9 +62,12 @@ namespace ProjekatI
                     {
                         Logger.Log("New client request received");
 
-                        //Uzmi jednu nit iz thread pool-a
-                        //Nit izvrsava funkciju HandleRequest
-                        //Ulazni parametar funkcije - context
+                        // svaki request ide na zasebnu nit iz thread pool-a
+                        // šta ako mnogo njih zatraži fajl proba.txt u isto vreme?
+                        // -> svi će da vrše konverziju, upisuju u keš itd.
+                        // zato nam treba neki mehanizam za sinhronizaciju u Cache.cs!
+
+                        // nit izvrsava funkciju HandleRequest, ulazni parametar funkcije - context
                         ThreadPool.QueueUserWorkItem(HandleRequest, context);
                     }
                     else
@@ -89,12 +92,12 @@ namespace ProjekatI
         }
         private void HandleRequest(object request)
         {
-            //Posto funkcoja u QueueUserWorkItem kao ulazni parametar zahteva object,
+            //Posto funkcija u QueueUserWorkItem kao ulazni parametar zahteva object,
             //moramo da vrsimo kastovanje nazad u HttpListenerContext
             var context = (HttpListenerContext)request;
 
             //Pokrecemo tajmer koji ce da eveidentira koliko je niti bilo potrebno vremena da obavi zahtev
-            //To ce nam mozda biti zgodno da vidimo koliko je brze kada se procita iz kesa, odnosno kada imam kes promasaj
+            //To ce nam mozda biti zgodno da vidimo koliko je brze kada se procita iz kesa, odnosno kada imamo kes promasaj
             var stopwatch = Stopwatch.StartNew();
 
             try
@@ -103,8 +106,8 @@ namespace ProjekatI
                 // ako se potraži recimo: http://localhost:5050/proba.txt
                 // i odmah pritisne enter za gašenje servera
                 // trebalo bi da se fajl preuzme i tek onda server ugasi
-                Logger.Log("Simulation of a large file processing (4s)");
-                Thread.Sleep(4000);
+                //Logger.Log("Simulation of a large file processing (4s)");
+                //Thread.Sleep(4000);
 
                 // http://localhost:5050/test.txt => ovde mi uzimamo sadrzaj posle znaka "/", sto je ime fajla koji obadjujemo
                 string fileName = context.Request.Url.AbsolutePath.TrimStart('/');
@@ -116,71 +119,64 @@ namespace ProjekatI
                     return;
                 }
 
-                Logger.Log($"Request started for file: {fileName}");
-
                 if (string.IsNullOrEmpty(fileName))
                 {
                     Logger.Log($"Empty file name in request!", "WARNING");
                     SendErrorResponse(context, "Please define file name in URL request!", HttpStatusCode.BadRequest);
                     return;
                 }
+                Logger.Log($"Request started for file: {fileName}");
 
-                byte[] responseData;
+                // ova klasa više ne vodi računa o tome da li je bio pogodak u kešu
+                // sva logika preneta na klasu Cache ovom metodom
                 // obavezno se ime fajlova prevara u mala slova!
-                if (_cache.TryGet(fileName.ToLower(), out var cached))
+                CachedResponse finalResponse = _cache.GetOrAddSecure(fileName.ToLower(), (name) =>
                 {
-                    Logger.Log($"Cache HIT for: {fileName}");
-                    responseData = cached.Data;
-                    context.Response.ContentType = cached.ContentType;
-                    if (!string.IsNullOrEmpty(cached.DownloadName))
-                    {
-                        context.Response.AddHeader("Content-Disposition", "attachment; filename=" + cached.DownloadName);
-                    }
-                }
-                else
-                {
-                    Logger.Log($"Cache MISS for: {fileName}");
-                    responseData = _fileConverter.ProcessFile(fileName);
-                    string extension = Path.GetExtension(fileName).ToLower();
+                    // This block is protected by the semaphore lock
+                    Logger.Log($"Cache MISS (Processing): {name}");
 
-                    CachedResponse toCache;
+                    // Simulate processing if needed for testing: Thread.Sleep(4000);
+                    byte[] data = _fileConverter.ProcessFile(name);
+                    string extension = Path.GetExtension(name).ToLower();
+
+                    string contentType;
+                    string downloadName = null;
+
                     if (extension == ".bin")
                     {
                         //Binarni fajl smo pretvorili u Base64 tekst, pa kazemo browseru da je to tekst
-                        context.Response.ContentType = "text/plain; charset=utf-8";
-                        toCache = new CachedResponse(responseData, context.Response.ContentType);
+                        contentType = "text/plain; charset=utf-8";
                     }
-                    else //(extension == ".txt")
+                    else    // extension == ".txt"
                     {
                         //Tekst smo pretvorili u binarne podatke, pa saljemo kao stream
-                        context.Response.ContentType = "application/octet-stream";
+                        contentType = "application/octet-stream";
                         //Eksplicitno kazemo browser-u da se fajl preuzme sa ekstenzijom .bin
-                        string downloadName = Path.ChangeExtension(fileName, ".bin");
-
-                        context.Response.AddHeader("Content-Disposition", "attachment; filename=" + downloadName);
-                        toCache = new CachedResponse(responseData, context.Response.ContentType, downloadName);
+                        downloadName = Path.ChangeExtension(name, ".bin");
                     }
 
-                    _cache.Add(fileName.ToLower(), toCache);
-                    //else
-                    //{
-                    // todo: da li se ikada dođe do ovde, ako se iznad baci exception za nepostojeći fajl?
-                    //     context.Response.ContentType = "text/plain";
-                    //     SendErrorResponse(context, "Invalid file extension!", HttpStatusCode.BadRequest);
-                    // }
+                    return new CachedResponse(data, contentType, downloadName);
+                });
+
+
+                context.Response.ContentType = finalResponse.ContentType;
+
+                if (!string.IsNullOrEmpty(finalResponse.DownloadName))
+                {
+                    context.Response.AddHeader("Content-Disposition", "attachment; filename=" + finalResponse.DownloadName);
                 }
 
-                //Slanje odgovora
-                context.Response.ContentLength64 = responseData.Length;
+                context.Response.ContentLength64 = finalResponse.Data.Length;
                 context.Response.StatusCode = (int)HttpStatusCode.OK;
+
 
                 using (var output = context.Response.OutputStream)
                 {
-                    output.Write(responseData, 0, responseData.Length);
+                    output.Write(finalResponse.Data, 0, finalResponse.Data.Length);
                 }
 
-                Logger.Log($"File succesfully processed: {fileName}!");
-
+                Logger.Log(_cache.PrintCacheStats());
+                Logger.Log($"File successfully processed: {fileName}!");
             }
             catch (UnauthorizedAccessException ec)
             {
@@ -246,7 +242,7 @@ namespace ProjekatI
 
             _isRunning = false;
             Logger.Log("Shutting down... waiting for active requests to finish.");
-            
+
             // server više ne prihvata nove zahteve...
             _activeRequests.Signal(); //Obavestavamo da se i poslednja nit gasi
 
