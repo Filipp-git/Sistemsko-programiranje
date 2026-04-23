@@ -1,11 +1,11 @@
 1. Keš
 - sprečiti stampedo: ovde je moguć, više niti može da pristupa istom endpoint-u
-- odrediti algoritam i strukturu podataka 
-(ConcurrentDictionary je thread safe, ključ neka bude ime fajla bez ekstenzije, 
-vrednosti su struktura: .bin i .txt sadržaji fajlova)
-- kritična sekcija?
+- odrediti algoritam i implementirati vremensko isticanje
+- da li kritična sekcija fali negde?
 
-2. Testiranje - mozda neka skripta koja ce da simulira korisnike (.py?)
+2. Testiranje 
+- skripta (.py?)
+- performanse: merenje vremena sa i bez keširanja
 
 3. Proveriti konveriju fajlova
 - trenutno ne radi .bin -> .txt
