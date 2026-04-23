@@ -98,10 +98,14 @@ namespace ProjekatI
 
             //Pokrecemo tajmer koji ce da eveidentira koliko je niti bilo potrebno vremena da obavi zahtev
             //To ce nam mozda biti zgodno da vidimo koliko je brze kada se procita iz kesa, odnosno kada imamo kes promasaj
-            var stopwatch = Stopwatch.StartNew();
+            var totalRequestTimer = Stopwatch.StartNew();
 
+            bool isCacheMiss = false;
             try
             {
+                // za merenje performansi
+                long missTime = 0;
+
                 // testiranje graceful shutdown-a
                 // ako se potraži recimo: http://localhost:5050/proba.txt
                 // i odmah pritisne enter za gašenje servera
@@ -132,13 +136,16 @@ namespace ProjekatI
                 // obavezno se ime fajlova prevara u mala slova!
                 CachedResponse finalResponse = _cache.GetOrAddSecure(fileName.ToLower(), (name) =>
                 {
-                    // This block is protected by the semaphore lock
+                    // ovde dolazimo ako je promašaj u kešu
+                    isCacheMiss = true;
                     Logger.Log($"Cache MISS (Processing): {name}");
 
-                    // Simulate processing if needed for testing: Thread.Sleep(4000);
+                    var processingTimer = Stopwatch.StartNew();
                     byte[] data = _fileConverter.ProcessFile(name);
-                    string extension = Path.GetExtension(name).ToLower();
+                    // nakon obrade promašaja, čuvamo proteklo vreme
+                    processingTimer.Stop();
 
+                    string extension = Path.GetExtension(name).ToLower();
                     string contentType;
                     string downloadName = null;
 
@@ -155,9 +162,20 @@ namespace ProjekatI
                         downloadName = Path.ChangeExtension(name, ".bin");
                     }
 
-                    return new CachedResponse(data, contentType, downloadName);
+                    return new CachedResponse(data, contentType, processingTimer.ElapsedMilliseconds, downloadName);
                 });
 
+                // ubrzanje se računa pre slanja podataka kroz mrežu
+                long logicTime = totalRequestTimer.ElapsedMilliseconds;
+                if (!isCacheMiss)
+                {
+                    double speedup = (double)finalResponse.ProcessingTime / Math.Max(logicTime, 1);
+                    Logger.Log($"[PERFORMANCES] Cache HIT Speedup: {speedup:F2}x (Original: {finalResponse.ProcessingTime}ms vs Current: {logicTime}ms)");
+                }
+                else
+                {
+                    Logger.Log($"[PERFORMANCES] Cache MISS Baseline: {finalResponse.ProcessingTime}ms");
+                }
 
                 context.Response.ContentType = finalResponse.ContentType;
 
@@ -201,9 +219,10 @@ namespace ProjekatI
             }
             finally
             {
-                stopwatch.Stop();
-
-                Logger.Log($"Request finished in {stopwatch.ElapsedMilliseconds} ms!");
+                // uključuje i vreme za prenos kroz mrežu
+                // gore merimo i poredimo samo performanse našeg servera
+                totalRequestTimer.Stop();
+                Logger.Log($"Total Request Trip: {totalRequestTimer.ElapsedMilliseconds} ms");
 
                 _activeRequests.Signal(); //Nit obavestava da se zavrsila obradu zahteva (smanjuje se broj trenutno aktivnih zahteva, čak i ako nešto pođe po zlu)
                 context.Response.Close();
