@@ -16,8 +16,26 @@ namespace ProjekatI
         public byte[] ProcessFile(string fileName)
         {
             // todo: obezbediti da neko ne može sluuučajno da pristupi npr. system32 :)
+
+            // primer zlonamernog url-a:
+            // http://localhost:5050/%2e%2e%2f%2e%2e%2fwindows/win.ini
+
+            // izdvajamo apsolutnu putanju do root foldera, koja mora da se završi sa / ili \
+            string absoluteRoot = Path.GetFullPath(_rootPath);
+            if (!absoluteRoot.EndsWith(Path.DirectorySeparatorChar.ToString()))
+            {
+                absoluteRoot += Path.DirectorySeparatorChar;
+            }
+            // izdvojeno ime fajla, bez direktorijuma prethodno
             string safeFileName = Path.GetFileName(fileName);
-            string fullPath = Path.Combine(_rootPath, safeFileName);
+            // spajamo root i ime fajla, ali bez .. ili relativnih segmenata
+            string fullPath = Path.GetFullPath(Path.Combine(absoluteRoot, safeFileName));
+
+            // da li je dobijena putanja unutar root foldera?
+            if(!fullPath.StartsWith(absoluteRoot, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new UnauthorizedAccessException("Attempt to break out of the root directory!");
+            }
 
             if (!File.Exists(fullPath))
                 throw new FileNotFoundException($"File {fileName} not found");
@@ -30,7 +48,7 @@ namespace ProjekatI
             {
                 //Pretvaramo binarne podatke u Base64 (tekstualna reprezentacija binarnih podataka) string za prikaz u browseru
                 string base64String = Convert.ToBase64String(data);
-                //Console.WriteLine($".bin=>.txt on file: {fileName}");
+
                 Logger.Log($".bin=>.txt conversion: {safeFileName}");
                 return Encoding.UTF8.GetBytes(base64String);
             }
@@ -43,7 +61,6 @@ namespace ProjekatI
                     /* => preuzima se kao binarni fajl, ali je sadrzaj tekstualni fajl
                     //Uzimamo tekst iz fajla
                     string content = Encoding.UTF8.GetString(data);
-                    //Console.WriteLine($".txt=>.bin on file: {fileName}");
                     Logger.Log($".txt=>.bin on file: {fileName}");
                     //Pretvaramo Base64 tekst nazad u sirove bajtove
                     return Convert.FromBase64String(content);
@@ -66,12 +83,8 @@ namespace ProjekatI
                     return data;
                 }
             }
-            // todo: ukoliko ekstenzija fajla nije validna, treba vratiti grešku
-            throw new NotSupportedException($"Extension {extension} is not supported.");
-            // else
-            // {
-            //     return data; //Nadamo se da nikada nece da dodje do ovog dela
-            // }                
+            // ukoliko tražena ekstenzija fajla nije validna, treba vratiti grešku
+            throw new NotSupportedException($"Extension {extension} is not supported.");           
         }
     }
 }

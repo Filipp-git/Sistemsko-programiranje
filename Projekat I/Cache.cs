@@ -23,5 +23,14 @@ namespace ProjekatI
             _storage.TryAdd(fileName, response);
         }
 
+        public void PrintCacheStats()
+        {
+            Console.WriteLine($"\n[Cache] Currently in cache: {_storage.Count} query/queries.");
+            foreach (var key in _storage.Keys)
+            {
+                Console.WriteLine($"  -> '{key}'");
+            }
+        }
+
     }
 }

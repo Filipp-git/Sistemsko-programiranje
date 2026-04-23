@@ -16,12 +16,12 @@ namespace ProjekatI
         private readonly Cache _cache;
         private readonly FileConverter _fileConverter;
 
-        //Da bi smo implementirali ,,Gracefull Shutdown":
+        //Da bi smo implementirali ,,Graceful Shutdown":
         //Pratimo broj trenutno aktivnih niti (zahteva)
         //Kako se koji zahtev prihvati broj trenutno aktivnih zahteva se povecava
         //Kako se koji zahtev zavsri broj se smanjuje
         //Pozivom metode Stop(), vodicemo racuna da svi zahtevi koji su pokrenuti,
-        //pre poziva metode Stop(), a nisu zavreseni, budu uspesno privedi kraju
+        //pre poziva metode Stop(), a nisu zavrseni, budu uspesno privedeni kraju
         private readonly CountdownEvent _activeRequests = new CountdownEvent(1);
 
         public HttpServer(int port = 5050)
@@ -55,7 +55,7 @@ namespace ProjekatI
                     //Respone predstavlja odgovor servera.
                     HttpListenerContext context = _listener.GetContext();
 
-                    //Povecavamo broj aktivnih zahteva/niti
+                    // povećavamo broj aktivnih zahteva/niti
                     // Try za dodatnu sigurnost: 
                     // da ne dobijemo exception kad je event već 0, već samo false
                     if (_activeRequests.TryAddCount())
@@ -99,6 +99,13 @@ namespace ProjekatI
 
             try
             {
+                // testiranje graceful shutdown-a
+                // ako se potraži recimo: http://localhost:5050/proba.txt
+                // i odmah pritisne enter za gašenje servera
+                // trebalo bi da se fajl preuzme i tek onda server ugasi
+                Logger.Log("Simulation of a large file processing (4s)");
+                Thread.Sleep(4000);
+
                 // http://localhost:5050/test.txt => ovde mi uzimamo sadrzaj posle znaka "/", sto je ime fajla koji obadjujemo
                 string fileName = context.Request.Url.AbsolutePath.TrimStart('/');
 
@@ -175,6 +182,11 @@ namespace ProjekatI
                 Logger.Log($"File succesfully processed: {fileName}!");
 
             }
+            catch (UnauthorizedAccessException ec)
+            {
+                Logger.Log($"Attempt to violate server security: {ec.Message}", "ERROR");
+                SendErrorResponse(context, "Access denied", HttpStatusCode.Forbidden);
+            }
             catch (NotSupportedException ec)
             {
                 Logger.Log($"Error on server side: {ec.Message}", "ERROR");
@@ -222,12 +234,11 @@ namespace ProjekatI
             {
                 //Ako slanje greske ne uspe (npr. klijent je u mdjuvremenu zatvorio browser),
                 //samo ispisujemo u konzolu servera da ne bi doslo do pucanja aplikacije
-                //Console.WriteLine($"Failed to send error response: {ec.Message}");
                 Logger.Log($"Failed to send error response: {ec.Message}", "ERROR");
             }
         }
 
-        //gracefull shutdown varijanta metode
+        //graceful shutdown varijanta metode
         public void Stop()
         {
             if (!_isRunning)
@@ -235,19 +246,21 @@ namespace ProjekatI
 
             _isRunning = false;
             Logger.Log("Shutting down... waiting for active requests to finish.");
-            // server više ne prihvata nove zahteve
-            _listener.Stop();
-
+            
+            // server više ne prihvata nove zahteve...
             _activeRequests.Signal(); //Obavestavamo da se i poslednja nit gasi
+
             bool gracefulShutdown = _activeRequests.Wait(5000);
+
+            // ...ali se gasi tek nakon što obradi postojeće
+            _listener.Stop();
+            _listener.Close();
 
             if (gracefulShutdown)
                 Logger.Log("Server shutdown completed gracefully!");
             else
                 // može doći do terminiranja nekih zahteva
                 Logger.Log("Shutdown timed out.", "WARNING");
-
-            _listener.Close();
         }
     }
 }
