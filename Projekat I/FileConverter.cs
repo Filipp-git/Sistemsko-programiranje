@@ -6,6 +6,7 @@ namespace ProjekatI
 {
     public class FileConverter
     {
+        //Putanja do foldera sa fajlovima
         private readonly string _rootPath;
 
         public FileConverter(string rootPath)
@@ -24,14 +25,14 @@ namespace ProjekatI
             string absoluteRoot = Path.GetFullPath(_rootPath);
             if (!absoluteRoot.EndsWith(Path.DirectorySeparatorChar.ToString()))
             {
-                absoluteRoot += Path.DirectorySeparatorChar;
+                absoluteRoot += Path.DirectorySeparatorChar; //osiguravamo da se putanja zavrsava sa \ ili /
             }
             // izdvojeno ime fajla, bez direktorijuma prethodno
             string safeFileName = Path.GetFileName(fileName);
             // spajamo root i ime fajla, ali bez .. ili relativnih segmenata
             string fullPath = Path.GetFullPath(Path.Combine(absoluteRoot, safeFileName));
 
-            // da li je dobijena putanja unutar root foldera?
+            // da li je dobijena putanja unutar root foldera? ili je neko pokusao nesto sumjnivo
             if(!fullPath.StartsWith(absoluteRoot, StringComparison.OrdinalIgnoreCase))
             {
                 throw new UnauthorizedAccessException("Attempt to break out of the root directory!");

@@ -15,6 +15,11 @@ namespace ProjekatI
         private readonly string _rootPath;
         private readonly Cache _cache;
         private readonly FileConverter _fileConverter;
+        private readonly int _maxConcurrentRequest; //ogranicavamo max broj aktivnih niti/zahteva na osnovu CountdownEvent
+                                                    //Ovo je bolja opcija jer se ThreadPool koristi na nivou cele aplikacije
+                                                    //To znaci da bi smo u pozadini mogli da imamo neku bibilioteku koja koristi
+                                                    //niti iz pool-a i ovim bi smo mogli da je ogranicimo (ako bi smo stavili da je max = 5).
+                                                    //Ne diramo sistemske niti, samo ogranicavamo broj zatheva koji obradjujemo.
 
         //Da bi smo implementirali ,,Graceful Shutdown":
         //Pratimo broj trenutno aktivnih niti (zahteva)
@@ -24,9 +29,10 @@ namespace ProjekatI
         //pre poziva metode Stop(), a nisu zavrseni, budu uspesno privedeni kraju
         private readonly CountdownEvent _activeRequests = new CountdownEvent(1);
 
-        public HttpServer(int port = 5050)
+        public HttpServer(int port = 5050, int maxRequests = 100)
         {
             _port = port;
+            _maxConcurrentRequest = maxRequests;
             _rootPath = Path.Combine(Directory.GetCurrentDirectory(), "Files"); //Putanja do root foldera
             _listener = new HttpListener();
             _listener.Prefixes.Add($"http://localhost:{_port}/"); //Adresa na kojoj server radi
@@ -58,7 +64,7 @@ namespace ProjekatI
                     // povećavamo broj aktivnih zahteva/niti
                     // Try za dodatnu sigurnost: 
                     // da ne dobijemo exception kad je event već 0, već samo false
-                    if (_activeRequests.TryAddCount())
+                    if (_activeRequests.CurrentCount <= _maxConcurrentRequest - 1 && _activeRequests.TryAddCount())
                     {
                         Logger.Log("New client request received");
 
@@ -73,8 +79,33 @@ namespace ProjekatI
                     else
                     {
                         // gašenje servera, svi novi zahtevi koji mogu da pristignu u tom trenutku se odbijaju
+                        //context.Response.StatusCode = (int)HttpStatusCode.ServiceUnavailable;
+                        //context.Response.Close();
+
+                        //Deo koji se izvrsava ukoliko smo dostigli max ogranicenje niti
+                        //Odnosno ukoliko TryAddCount vrati false
+
+                        Logger.Log($"Request rejected: Maximum capacity of {_maxConcurrentRequest} reacher", "WARNING");context.Response.StatusCode = (int)HttpStatusCode.ServiceUnavailable;
                         context.Response.StatusCode = (int)HttpStatusCode.ServiceUnavailable;
-                        context.Response.Close();
+                
+                        string errorMsg = "Server is busy. Please try again later.";
+                        byte[] buffer = Encoding.UTF8.GetBytes(errorMsg);
+                        
+                        context.Response.ContentType = "text/plain; charset=utf-8";
+                        context.Response.ContentLength64 = buffer.Length;
+                        
+                        //Moramo koristiti try-catch i ovde jer klijent moze zatvoriti vezu pre nego sto posaljemo
+                        try 
+                        {
+                            using (var output = context.Response.OutputStream)
+                            {
+                                output.Write(buffer, 0, buffer.Length);
+                            }
+                        }
+                        finally 
+                        {
+                            context.Response.Close();
+                        }
                     }
                 }
                 // pri pozivu Stop() dolazi se u ovaj blok
@@ -101,6 +132,7 @@ namespace ProjekatI
             var totalRequestTimer = Stopwatch.StartNew();
 
             bool isCacheMiss = false;
+
             try
             {
                 // za merenje performansi
@@ -116,7 +148,7 @@ namespace ProjekatI
                 // http://localhost:5050/test.txt => ovde mi uzimamo sadrzaj posle znaka "/", sto je ime fajla koji obadjujemo
                 string fileName = context.Request.Url.AbsolutePath.TrimStart('/');
 
-                // browser automatski traži ovaj fajl, ne obrađujemo ga
+                // browser automatski traži ovaj fajl (ikonicu), ne obrađujemo ga
                 if (string.Equals(fileName, "favicon.ico", StringComparison.OrdinalIgnoreCase))
                 {
                     context.Response.Close();
@@ -153,6 +185,7 @@ namespace ProjekatI
                     {
                         //Binarni fajl smo pretvorili u Base64 tekst, pa kazemo browseru da je to tekst
                         contentType = "text/plain; charset=utf-8";
+                        downloadName = Path.ChangeExtension(name, ".txt");
                     }
                     else    // extension == ".txt"
                     {
@@ -169,7 +202,7 @@ namespace ProjekatI
                 long logicTime = totalRequestTimer.ElapsedMilliseconds;
                 if (!isCacheMiss)
                 {
-                    double speedup = (double)finalResponse.ProcessingTime / Math.Max(logicTime, 1);
+                    double speedup = (double)finalResponse.ProcessingTime / Math.Max(logicTime, 1); //Poredi se vreme koje je bilo potrebno za konverziju, sa vremeno citanja iz memorije (kesa)
                     Logger.Log($"[PERFORMANCES] Cache HIT Speedup: {speedup:F2}x (Original: {finalResponse.ProcessingTime}ms vs Current: {logicTime}ms)");
                 }
                 else
@@ -267,7 +300,7 @@ namespace ProjekatI
 
             bool gracefulShutdown = _activeRequests.Wait(5000);
 
-            // ...ali se gasi tek nakon što obradi postojeće
+            // ...ali se gasi tek nakon što obradi postojeće zahteve
             _listener.Stop();
             _listener.Close();
 

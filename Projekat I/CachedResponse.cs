@@ -4,8 +4,8 @@ namespace ProjekatI
 {
     public class CachedResponse
     {
-        public byte[] Data { get; }
-        public string ContentType { get; }
+        public byte[] Data { get; } // podaci
+        public string ContentType { get; } // tip odgovora servera
         public string DownloadName { get; } // null ako se fajl ne preuzima
         // za implementaciju vremenskog isticanja
         public DateTime CreatedAt { get; }

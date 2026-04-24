@@ -3,11 +3,10 @@ using System.Text;
 
 namespace ProjekatI
 {
+    //Verzija kesa sa vremenskim isticanjem + sprecavanje kes stampeda
     public class Cache
     {
-        // todo: implementirati fifo algoritam, sprečiti stampede
-
-        // ConcurrentDictionary je thread safe, za implementaciju keša:
+        // ConcurrentDictionary je thread safe (vise niti moze da cita/pise, bez lock-a), za implementaciju keša:
         // ključ je ime fajla sa ekstenzijom, 
         // vrednosti su klasnog tipa: 
         // - sadržaji fajlova nakon konverzije
