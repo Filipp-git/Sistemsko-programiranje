@@ -16,8 +16,6 @@ namespace ProjekatI
 
         public byte[] ProcessFile(string fileName)
         {
-            // todo: obezbediti da neko ne može sluuučajno da pristupi npr. system32 :)
-
             // primer zlonamernog url-a:
             // http://localhost:5050/%2e%2e%2f%2e%2e%2fwindows/win.ini
 
@@ -33,7 +31,7 @@ namespace ProjekatI
             string fullPath = Path.GetFullPath(Path.Combine(absoluteRoot, safeFileName));
 
             // da li je dobijena putanja unutar root foldera? ili je neko pokusao nesto sumjnivo
-            if(!fullPath.StartsWith(absoluteRoot, StringComparison.OrdinalIgnoreCase))
+            if (!fullPath.StartsWith(absoluteRoot, StringComparison.OrdinalIgnoreCase))
             {
                 throw new UnauthorizedAccessException("Attempt to break out of the root directory!");
             }
@@ -59,22 +57,6 @@ namespace ProjekatI
             {
                 try
                 {
-                    /* => preuzima se kao binarni fajl, ali je sadrzaj tekstualni fajl
-                    //Uzimamo tekst iz fajla
-                    string content = Encoding.UTF8.GetString(data);
-                    Logger.Log($".txt=>.bin on file: {fileName}");
-                    //Pretvaramo Base64 tekst nazad u sirove bajtove
-                    return Convert.FromBase64String(content);
-                    */
-
-                    /*
-                    //string content = Encoding.UTF8.GetString(data);
-                    string content = File.ReadAllText(fullPath);
-
-                    Logger.Log($".txt=>.bin conversion: {fileName}");
-
-                    return Encoding.UTF8.GetBytes(content);*/
-
                     return data;
                 }
                 catch (FormatException)
@@ -85,7 +67,7 @@ namespace ProjekatI
                 }
             }
             // ukoliko tražena ekstenzija fajla nije validna, treba vratiti grešku
-            throw new NotSupportedException($"Extension {extension} is not supported.");           
+            throw new NotSupportedException($"Extension {extension} is not supported.");
         }
     }
 }

@@ -17,7 +17,7 @@ namespace ProjekatI
         private readonly FileConverter _fileConverter;
         private readonly int _maxConcurrentRequest; //ogranicavamo max broj aktivnih niti/zahteva na osnovu CountdownEvent
                                                     //Ovo je bolja opcija jer se ThreadPool koristi na nivou cele aplikacije
-                                                    //To znaci da bi smo u pozadini mogli da imamo neku bibilioteku koja koristi
+                                                    //To znaci da bismo u pozadini mogli da imamo neku bibilioteku koja koristi
                                                     //niti iz pool-a i ovim bi smo mogli da je ogranicimo (ako bi smo stavili da je max = 5).
                                                     //Ne diramo sistemske niti, samo ogranicavamo broj zatheva koji obradjujemo.
 
@@ -85,24 +85,24 @@ namespace ProjekatI
                         //Deo koji se izvrsava ukoliko smo dostigli max ogranicenje niti
                         //Odnosno ukoliko TryAddCount vrati false
 
-                        Logger.Log($"Request rejected: Maximum capacity of {_maxConcurrentRequest} reacher", "WARNING");context.Response.StatusCode = (int)HttpStatusCode.ServiceUnavailable;
+                        Logger.Log($"Request rejected: Maximum capacity of {_maxConcurrentRequest} reacher", "WARNING"); context.Response.StatusCode = (int)HttpStatusCode.ServiceUnavailable;
                         context.Response.StatusCode = (int)HttpStatusCode.ServiceUnavailable;
-                
+
                         string errorMsg = "Server is busy. Please try again later.";
                         byte[] buffer = Encoding.UTF8.GetBytes(errorMsg);
-                        
+
                         context.Response.ContentType = "text/plain; charset=utf-8";
                         context.Response.ContentLength64 = buffer.Length;
-                        
+
                         //Moramo koristiti try-catch i ovde jer klijent moze zatvoriti vezu pre nego sto posaljemo
-                        try 
+                        try
                         {
                             using (var output = context.Response.OutputStream)
                             {
                                 output.Write(buffer, 0, buffer.Length);
                             }
                         }
-                        finally 
+                        finally
                         {
                             context.Response.Close();
                         }
