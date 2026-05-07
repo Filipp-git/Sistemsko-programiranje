@@ -1,0 +1,7 @@
+C was originally designed for and implemented on the UNIX operating system on the DEC
+PDP-11, by Dennis Ritchie. The operating system, the C compiler, and essentially all UNIX
+applications programs (including all of the software used to prepare this book) are written in
+C. Production compilers also exist for several other machines, including the IBM System/370,
+the Honeywell 6000, and the Interdata 8/32. C is not tied to any particular hardware or system,
+however, and it is easy to write programs that will run without change on any machine that
+supports C.
