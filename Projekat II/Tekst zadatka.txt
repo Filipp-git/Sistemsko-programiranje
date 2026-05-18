@@ -1,0 +1,37 @@
+Kreirati Web server koji vrši konverziju iz binarnog u tekstualni fajl i obratno. 
+Svi zahtevi serveru se šalju preko browser-a korišćenjem GET metode. U zahtevu se kao parametar navodi naziv fajla.
+Server prihvata zahtev, pretražuje root folder za zahtevani fajl i vrši konverziju. 
+Ukoliko traženi fajl ne postoji, vratiti grešku korisniku.
+Primer poziva serveru: http://localhost:5050/test.txt
+
+Implementacija keša: vremesko isticanje.
+
+Napomene za izradu 2. projekta:
+Za drugi projekat timovi implementiraju isti zadatak (temu) koji su imali za prvi projekat, uz
+izmenu da sada treba koristiti taskove i asinhrone operacije (tamo gde to ima smisla). Za
+obradu kod koje taskovi nemaju smisla treba zadržati klasične niti. Pored toga, potrebno je
+demonstrirati rad kontinuacija upotrebom ContinueWith sintakse. U zavisnosti od konkretnog
+slučaja uporebe, proceniti gde je korišćenje kontinuacija smisleno.
+Potrebno je implementirati serversku aplikaciju kao konzolni program u programskom jeziku C#
+koja obrađuje zahteve klijenata i generiše odgovore na osnovu pristupa deljenim resursima. Sistem
+mora podržati istovremeni rad sa većim brojem zahteva, pri čemu se prijem i obrada zahteva
+izvršavaju konkurentno.
+Arhitektura sistema treba da bude zasnovana na razdvajanju prijema i obrade zahteva. Pristigli
+zahtevi se smeštaju u deljenu strukturu podataka, dok njihovu obradu vrše taskovi. Broj paralelnih
+obrada mora biti kontrolisan.
+Sistem treba da koristi zajedničke resurse (npr. memoriju, fajlove ili druge izvore podataka) koji
+su dostupni svim taskovima, pri čemu je neophodno obezbediti njihov thread-safe pristup. Poseban
+akcenat staviti na pravilno upravljanje kritičnim sekcijama i izbegavanje problema konkurentnog
+pristupa.
+U okviru sistema potrebno je implementirati mehanizam keširanja koji omogućava ponovno
+korišćenje prethodno pribavljenih rezultata. Keš mora biti thread-safe i podržavati definisanu
+strategiju upravljanja (vremensko isticanje ili ograničenje veličine). U slučaju istovremenih
+zahteva za istim resursom, obrada treba da se izvrši samo jednom, dok ostali taskovi čekaju na
+rezultat (problem poznat kao cache stampede). Koristiti strategiju upravljanja koja je data uz
+konkretnu temu.
+Sistem mora da vodi evidenciju o obradi zahteva i stanju sistema. Logovanje mora biti realizovano
+na thread-safe način. Takođe je potrebno obezbediti odgovarajuću obradu grešaka i stabilno
+ponašanje sistema u uslovima većeg opterećenja.
+U okviru projekta potrebno je analizirati korišćene mehanizme sinhronizacije, identifikovati
+kritične sekcije i razmotriti ponašanje sistema pri različitim nivoima konkurentnog opterećenja
+(naročito u situacijama sa velikim brojem paralelnih zahteva).
