@@ -2,20 +2,20 @@
 {
     public class Program
     {
-        public static void Main()
+        public static async Task Main()
         {
             // Server smo odvojili u posebnu nit
             // da bi glavna nit ostala aktivna i bila u mogucnosti da reaguje na Enter (gasenje servera)
             HttpServer server = new HttpServer();
-            //HttpServer server = new HttpServer(5050, 10); (PORT, MAX_BROJ_NITI)!!
-            Thread serverThread = new Thread(server.Start);
-            serverThread.Start();
+            
+            Task.Run(() => server.Start());
 
             // server se gasi pritiskom na Enter
             while (Console.ReadKey().Key != ConsoleKey.Enter) { }
 
+            // Gasenje servera
+            //server.Stop();
             server.Stop();
-            serverThread.Join();
         }
     }
 }

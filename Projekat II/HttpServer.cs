@@ -11,22 +11,22 @@ namespace ProjekatI
     {
         private readonly HttpListener _listener;
         private readonly int _port;
-        private bool _isRunning; //Da li nam je potrebna informacija o tome da li server radi?
-        private readonly string _rootPath;
+        private bool _isRunning; // Informacija o tome da li server trenutno radi
+        private readonly string _rootPath; // Putanja do root foldera sa fajlovima
         private readonly Cache _cache;
         private readonly FileConverter _fileConverter;
-        private readonly int _maxConcurrentRequest; //ogranicavamo max broj aktivnih niti/zahteva na osnovu CountdownEvent
-                                                    //Ovo je bolja opcija jer se ThreadPool koristi na nivou cele aplikacije
-                                                    //To znaci da bismo u pozadini mogli da imamo neku bibilioteku koja koristi
-                                                    //niti iz pool-a i ovim bi smo mogli da je ogranicimo (ako bi smo stavili da je max = 5).
-                                                    //Ne diramo sistemske niti, samo ogranicavamo broj zatheva koji obradjujemo.
+        private readonly int _maxConcurrentRequest; // Ogranicavamo max broj aktivnih taskova/zahteva na osnovu CountdownEvent
+                                                    // Ovo je bolja opcija jer se ThreadPool koristi na nivou cele aplikacije
+                                                    // To znaci da bismo u pozadini mogli da imamo neku bibilioteku koja koristi
+                                                    // niti iz pool-a i ovim bi smo mogli da je ogranicimo (ako bi smo stavili da je max = 5).
+                                                    // Ne diramo sistemske niti, samo ogranicavamo broj zatheva koji obradjujemo.
 
-        //Da bi smo implementirali ,,Graceful Shutdown":
-        //Pratimo broj trenutno aktivnih niti (zahteva)
-        //Kako se koji zahtev prihvati broj trenutno aktivnih zahteva se povecava
-        //Kako se koji zahtev zavsri broj se smanjuje
-        //Pozivom metode Stop(), vodicemo racuna da svi zahtevi koji su pokrenuti,
-        //pre poziva metode Stop(), a nisu zavrseni, budu uspesno privedeni kraju
+        // Da bi smo implementirali ,,Graceful Shutdown":
+        // Pratimo broj trenutno aktivnih niti (zahteva)
+        // Kako se koji zahtev prihvati broj trenutno aktivnih zahteva se povecava
+        // Kako se koji zahtev zavsri broj se smanjuje
+        // Pozivom metode Stop(), vodicemo racuna da svi zahtevi koji su pokrenuti,
+        // pre poziva metode Stop(), a nisu zavrseni, budu uspesno privedeni kraju
         private readonly CountdownEvent _activeRequests = new CountdownEvent(1);
 
         public HttpServer(int port = 5050, int maxRequests = 100)
@@ -50,62 +50,33 @@ namespace ProjekatI
             Logger.Log($"Root folder: {_rootPath}");
             Logger.Log("Press Enter for server shutdown...");
 
-            while (_isRunning)
+            Task.Run(async () => await ListenAsync());
+        }
+
+        private async Task ListenAsync()
+        {
+            while(_isRunning)
             {
                 try
                 {
-                    //Prihvatanje konekcije
-                    //Blokirajuca je metoda, koja ceka da neko zahteva usluge servera
-                    //context sadrzi 2 dela => Request i Response:
-                    //Request predstavlja zahtev klijenta,
-                    //Respone predstavlja odgovor servera.
-                    HttpListenerContext context = _listener.GetContext();
+                    // Umesto da pozivamo blokirajucu metodu za hvatanje zahteva
+                    // koristimo asinhronu verziju, kod koje se nit ne blokira dok ne dodje zahtev
+                    // Nit pokrene metodu, vrati u ThreadPool ili da radi neki drugi posao, a po pristizanju zahteva
+                    // vrsi se budjenje, prihvatanje i obrada zahteva
+                    HttpListenerContext context = await _listener.GetContextAsync();
 
-                    // povećavamo broj aktivnih zahteva/niti
-                    // Try za dodatnu sigurnost: 
-                    // da ne dobijemo exception kad je event već 0, već samo false
-                    if (_activeRequests.CurrentCount <= _maxConcurrentRequest - 1 && _activeRequests.TryAddCount())
+                    if(_activeRequests.CurrentCount <= _maxConcurrentRequest - 1 && _activeRequests.TryAddCount())
                     {
                         Logger.Log("New client request received");
 
-                        // svaki request ide na zasebnu nit iz thread pool-a
-                        // šta ako mnogo njih zatraži fajl proba.txt u isto vreme?
-                        // -> svi će da vrše konverziju, upisuju u keš itd.
-                        // zato nam treba neki mehanizam za sinhronizaciju u Cache.cs!
-
-                        // nit izvrsava funkciju HandleRequest, ulazni parametar funkcije - context
-                        ThreadPool.QueueUserWorkItem(HandleRequest, context);
+                        _ = Task.Run(async () => await HandleRequestAsync(context));
+                        // Ako bi ovde stavili await, server bi postao sekvencijalan!
                     }
                     else
                     {
-                        // gašenje servera, svi novi zahtevi koji mogu da pristignu u tom trenutku se odbijaju
-                        //context.Response.StatusCode = (int)HttpStatusCode.ServiceUnavailable;
-                        //context.Response.Close();
-
-                        //Deo koji se izvrsava ukoliko smo dostigli max ogranicenje niti
-                        //Odnosno ukoliko TryAddCount vrati false
-
-                        Logger.Log($"Request rejected: Maximum capacity of {_maxConcurrentRequest} reacher", "WARNING"); context.Response.StatusCode = (int)HttpStatusCode.ServiceUnavailable;
-                        context.Response.StatusCode = (int)HttpStatusCode.ServiceUnavailable;
-
-                        string errorMsg = "Server is busy. Please try again later.";
-                        byte[] buffer = Encoding.UTF8.GetBytes(errorMsg);
-
-                        context.Response.ContentType = "text/plain; charset=utf-8";
-                        context.Response.ContentLength64 = buffer.Length;
-
-                        //Moramo koristiti try-catch i ovde jer klijent moze zatvoriti vezu pre nego sto posaljemo
-                        try
-                        {
-                            using (var output = context.Response.OutputStream)
-                            {
-                                output.Write(buffer, 0, buffer.Length);
-                            }
-                        }
-                        finally
-                        {
-                            context.Response.Close();
-                        }
+                        // Ako smo dostigli limit, odbijamo klijenta (Service Unavailable)
+                        Logger.Log($"Request rejected: Maximum capacity of {_maxConcurrentRequest} reached", "WARNING");
+                        SendErrorResponse(context, "Server is busy. Please try again later!", HttpStatusCode.ServiceUnavailable);
                     }
                 }
                 // pri pozivu Stop() dolazi se u ovaj blok
@@ -115,38 +86,35 @@ namespace ProjekatI
                 }
                 catch (Exception ec)
                 {
-                    // da ne ispisujemo exception kad želimo da se server isključi
+                    // Da ne ispisujemo exception kad zelimo da se server iskljuci
                     if (_isRunning)
                         Logger.Log($"Error in listener: {ec.Message}", "ERROR");
                 }
             }
         }
-        private void HandleRequest(object request)
-        {
-            //Posto funkcija u QueueUserWorkItem kao ulazni parametar zahteva object,
-            //moramo da vrsimo kastovanje nazad u HttpListenerContext
-            var context = (HttpListenerContext)request;
 
-            //Pokrecemo tajmer koji ce da eveidentira koliko je niti bilo potrebno vremena da obavi zahtev
-            //To ce nam mozda biti zgodno da vidimo koliko je brze kada se procita iz kesa, odnosno kada imamo kes promasaj
+        private async Task HandleRequestAsync(HttpListenerContext context)
+        {
+            // Pokrecemo tajmer koji ce da eveidentira koliko je tasku bilo potrebno vremena da obavi zahtev
+            // To ce nam mozda biti zgodno da vidimo koliko je brze kada se procita iz kesa, odnosno kada imamo kes promasaj
             var totalRequestTimer = Stopwatch.StartNew();
 
-            bool isCacheMiss = false;
+            //bool isCacheMiss = false;
 
             try
             {
                 // za merenje performansi
-                long missTime = 0;
+                //long missTime = 0;
 
                 // testiranje graceful shutdown-a
                 // ako se potraži recimo: http://localhost:5050/proba.txt
                 // i odmah pritisne enter za gašenje servera
                 // trebalo bi da se fajl preuzme i tek onda server ugasi
-                //Logger.Log("Simulation of a large file processing (4s)");
-                //Thread.Sleep(4000);
+                // Logger.Log("Simulation of a large file processing (4s)");
+                // Thread.Sleep(4000);
 
                 // http://localhost:5050/test.txt => ovde mi uzimamo sadrzaj posle znaka "/", sto je ime fajla koji obadjujemo
-                string fileName = context.Request.Url.AbsolutePath.TrimStart('/');
+                string fileName = context.Request.Url!.AbsolutePath.TrimStart('/');
 
                 // browser automatski traži ovaj fajl (ikonicu), ne obrađujemo ga
                 if (string.Equals(fileName, "favicon.ico", StringComparison.OrdinalIgnoreCase))
@@ -161,8 +129,34 @@ namespace ProjekatI
                     SendErrorResponse(context, "Please define file name in URL request!", HttpStatusCode.BadRequest);
                     return;
                 }
+
                 Logger.Log($"Request started for file: {fileName}");
 
+                byte[] fileData = await _fileConverter.ProcessFileASync(fileName);
+
+                string extension = Path.GetExtension(fileName).ToLower();
+
+                if (extension == ".bin")
+                {
+                    context.Response.ContentType = "text/plain; charset=utf-8";
+                    context.Response.AddHeader("Content-Disposition", "attachment; filename=" + Path.ChangeExtension(fileName, ".txt"));
+                }
+                else
+                {
+                    context.Response.ContentType = "application/octet-stream";
+                    context.Response.AddHeader("Content-Disposition", "attachment; filename=" + Path.ChangeExtension(fileName, ".bin"));
+                }
+
+                context.Response.ContentLength64 = fileData.Length;
+                context.Response.StatusCode = (int)HttpStatusCode.OK;
+
+                using(var output = context.Response.OutputStream)
+                {
+                    await output.WriteAsync(fileData, 0, fileData.Length);
+                }
+
+                Logger.Log($"File successfully processed: {fileName}!");
+                /*
                 // ova klasa više ne vodi računa o tome da li je bio pogodak u kešu
                 // sva logika preneta na klasu Cache ovom metodom
                 // obavezno se ime fajlova prevara u mala slova!
@@ -227,7 +221,7 @@ namespace ProjekatI
                 }
 
                 Logger.Log(_cache.PrintCacheStats());
-                Logger.Log($"File successfully processed: {fileName}!");
+                Logger.Log($"File successfully processed: {fileName}!");*/
             }
             catch (UnauthorizedAccessException ec)
             {
@@ -280,9 +274,13 @@ namespace ProjekatI
             }
             catch (Exception ec)
             {
-                //Ako slanje greske ne uspe (npr. klijent je u mdjuvremenu zatvorio browser),
-                //samo ispisujemo u konzolu servera da ne bi doslo do pucanja aplikacije
+                // Ako slanje greske ne uspe (npr. klijent je u mdjuvremenu zatvorio browser),
+                // samo ispisujemo u konzolu servera da ne bi doslo do pucanja aplikacije
                 Logger.Log($"Failed to send error response: {ec.Message}", "ERROR");
+            }
+            finally
+            {
+                context.Response.Close();
             }
         }
 
@@ -296,7 +294,7 @@ namespace ProjekatI
             Logger.Log("Shutting down... waiting for active requests to finish.");
 
             // server više ne prihvata nove zahteve...
-            _activeRequests.Signal(); //Obavestavamo da se i poslednja nit gasi
+            _activeRequests.Signal(); // Obavestavamo da se i poslednja nit gasi
 
             bool gracefulShutdown = _activeRequests.Wait(5000);
 

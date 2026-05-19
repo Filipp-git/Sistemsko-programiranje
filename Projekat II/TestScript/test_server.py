@@ -26,7 +26,7 @@ def run_simulation():
     threads = []
     
     # 1. Par korisnika traži ISTI fajl istovremeno (Testiranje kesa/konkurentnog citanja)
-    for i in range(150):
+    for i in range(10):
         t = threading.Thread(target=simulate_user, args=(i, "large.bin"))
         threads.append(t)
         
