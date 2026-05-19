@@ -1,2 +1,6 @@
 ***Ce ga napravimo***
 
+1. Vratiti veci broj zahteva u kes.
+2. Trenutno se statistika ispisuje samo u konzoli (klijent ne vidi), da li je to okej?
+3. Promeniti poruke koje se ispisuju u ContinueWith.
+4. Kes adaptacija na Taskove.

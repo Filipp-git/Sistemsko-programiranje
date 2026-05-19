@@ -50,6 +50,9 @@ namespace ProjekatI
             Logger.Log($"Root folder: {_rootPath}");
             Logger.Log("Press Enter for server shutdown...");
 
+            // Prebacujemo izvrsenje na neku nit iz ThreadPool - a
+            // Omogucava asinhrono prihvatanje zahteva, bez obzira
+            // kako je Start metoda pozvana van 
             Task.Run(async () => await ListenAsync());
         }
 
@@ -133,6 +136,33 @@ namespace ProjekatI
                 Logger.Log($"Request started for file: {fileName}");
 
                 byte[] fileData = await _fileConverter.ProcessFileASync(fileName);
+
+                await Task.FromResult(fileData).ContinueWith( async parentTask =>
+                {
+                    byte[] dataToProcess = parentTask.Result;
+                    string extension = Path.GetExtension(fileName).ToLower();
+                    string responseMessage = "";
+
+                    // Konverzija
+                    string textContent = Encoding.UTF8.GetString(dataToProcess);
+
+                    if (extension == ".bin")
+                    {
+                        // Za .bin fajl brojimo slova u Base64 tekstu i logujemo u konzolu
+                        int characterCount = textContent.Length;
+                        Logger.Log($"[ContinueWith Analytics] Character count for converted BIN->Base64 text: {characterCount} characters.");
+                    }
+                    else if (extension == ".txt")
+                    {
+                        // Za .txt fajl brojimo reči i logujemo u konzolu
+                        string[] words = textContent.Split(
+                            new[] { ' ', '\t', '\r', '\n' }, 
+                            StringSplitOptions.RemoveEmptyEntries
+                        );
+                        int wordCount = words.Length;
+                        Logger.Log($"[ContinueWith Analytics] Standard word count for TXT file: {wordCount} words.");
+                    }
+                });
 
                 string extension = Path.GetExtension(fileName).ToLower();
 
