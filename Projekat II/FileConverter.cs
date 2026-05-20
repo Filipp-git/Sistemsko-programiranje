@@ -2,7 +2,7 @@ using System;
 using System.IO;
 using System.Text;
 
-namespace ProjekatI
+namespace ProjekatII
 {
     public class FileConverter
     {
@@ -15,7 +15,7 @@ namespace ProjekatI
         }
 
         // Metoda koja radi sa I/O, pa ima smisla da bude async
-        public async Task<byte[]> ProcessFileASync(string fileName)
+        public async Task<byte[]> ProcessFileAsync(string fileName)
         {
             // primer zlonamernog url-a:
             // http://localhost:5050/%2e%2e%2f%2e%2e%2fwindows/win.ini
@@ -42,10 +42,13 @@ namespace ProjekatI
 
             byte[] data;
 
-            // Parametri konstruktora: Putanja, Rezim otvaranja, Sta kod hoce da radi, Kako se fajl deli sa ostalima, Velicina privremenog skladisata, Aktivacija asinhronog moda
-            using(FileStream sourceStream = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 4096, useAsync: true))
+            // Parametri konstruktora: 
+            // Putanja, Rezim otvaranja, Sta kod hoce da radi, Kako se fajl deli sa ostalima,
+            // Velicina privremenog skladista, Aktivacija asinhronog moda
+            using (FileStream sourceStream = new FileStream(fullPath, FileMode.Open, FileAccess.Read,
+                FileShare.Read, bufferSize: 4096, useAsync: true))
             {
-                // Citanje sadrzaja foldera
+                // Citanje sadrzaja
                 data = new byte[sourceStream.Length]; // data ce biti dovoljne velicine da prihvati ceo sadrzaj fajla
                 await sourceStream.ReadExactlyAsync(data, 0, (int)sourceStream.Length);
             }
@@ -72,7 +75,7 @@ namespace ProjekatI
                 }
                 catch (FormatException)
                 {
-                    //A ko fajl nije validan Base64, samo vrati originalne bajtove 
+                    // ako fajl nije validan Base64, samo vrati originalne bajtove 
                     // da se program ne bi srušio
                     return data;
                 }

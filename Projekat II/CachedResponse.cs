@@ -1,6 +1,6 @@
 using System.Diagnostics;
 
-namespace ProjekatI
+namespace ProjekatII
 {
     public class CachedResponse
     {
@@ -11,7 +11,7 @@ namespace ProjekatI
         public DateTime CreatedAt { get; }
         // koliko milisekundi je bilo potrebno za obradu, kada se javi promašaj u kešu?
         public long ProcessingTime { get; }
-        public CachedResponse(byte[] data, string contentType, long processingTime, string downloadName = null)
+        public CachedResponse(byte[] data, string contentType, long processingTime, string downloadName)
         {
             Data = data;
             ContentType = contentType;

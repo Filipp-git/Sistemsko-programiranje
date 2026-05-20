@@ -1,4 +1,4 @@
-﻿namespace ProjekatI
+﻿namespace ProjekatII
 {
     public class Program
     {
@@ -15,7 +15,6 @@
             while (Console.ReadKey().Key != ConsoleKey.Enter) { }
 
             // Gasenje servera
-            //server.Stop();
             server.Stop();
         }
     }

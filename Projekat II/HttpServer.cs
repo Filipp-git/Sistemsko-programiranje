@@ -1,11 +1,12 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Formats.Asn1;
 using System.Net;
 using System.Text;
 using System.Threading;
 
-namespace ProjekatI
+namespace ProjekatII
 {
     public class HttpServer
     {
@@ -51,14 +52,13 @@ namespace ProjekatI
             Logger.Log("Press Enter for server shutdown...");
 
             // Prebacujemo izvrsenje na neku nit iz ThreadPool - a
-            // Omogucava asinhrono prihvatanje zahteva, bez obzira
-            // kako je Start metoda pozvana van 
+            // Omogucava asinhrono prihvatanje zahteva, bez obzira kako je Start metoda pozvana van 
             Task.Run(async () => await ListenAsync());
         }
-
+        // metoda je privatna jer se može pozvati samo iz Start metode, koju poziva Main
         private async Task ListenAsync()
         {
-            while(_isRunning)
+            while (_isRunning)
             {
                 try
                 {
@@ -68,7 +68,7 @@ namespace ProjekatI
                     // vrsi se budjenje, prihvatanje i obrada zahteva
                     HttpListenerContext context = await _listener.GetContextAsync();
 
-                    if(_activeRequests.CurrentCount <= _maxConcurrentRequest - 1 && _activeRequests.TryAddCount())
+                    if (_activeRequests.CurrentCount <= _maxConcurrentRequest - 1 && _activeRequests.TryAddCount())
                     {
                         Logger.Log("New client request received");
 
@@ -102,13 +102,10 @@ namespace ProjekatI
             // To ce nam mozda biti zgodno da vidimo koliko je brze kada se procita iz kesa, odnosno kada imamo kes promasaj
             var totalRequestTimer = Stopwatch.StartNew();
 
-            //bool isCacheMiss = false;
+            bool isCacheMiss = false;
 
             try
             {
-                // za merenje performansi
-                //long missTime = 0;
-
                 // testiranje graceful shutdown-a
                 // ako se potraži recimo: http://localhost:5050/proba.txt
                 // i odmah pritisne enter za gašenje servera
@@ -134,14 +131,28 @@ namespace ProjekatI
                 }
 
                 Logger.Log($"Request started for file: {fileName}");
+                // prvo potražimo u kešu, a tek onda konvertujemo po potrebi
+                string searchkey = fileName.ToLower();
 
-                byte[] fileData = await _fileConverter.ProcessFileASync(fileName);
+                // ova klasa više ne vodi računa o tome da li je bio pogodak u kešu
+                // sva logika preneta na klasu Cache ovom metodom
+                // obavezno se ime fajlova prevara u mala slova!
+                CachedResponse finalResponse = await _cache.GetOrAddSecureAsync(searchkey, async (name) =>
+                {
+                    // ovde dolazimo ako je promašaj u kešu
+                    isCacheMiss = true;
+                    Logger.Log($"Cache MISS (Processing): {name}");
 
-                await Task.FromResult(fileData).ContinueWith( async parentTask =>
+                    var processingTimer = Stopwatch.StartNew();
+                    byte[] fileData = await _fileConverter.ProcessFileAsync(name);
+                    // nakon obrade promašaja, čuvamo proteklo vreme
+                    processingTimer.Stop();
+
+                    // kontinuacije pomerene!
+                    _ = Task.FromResult(fileData).ContinueWith(async parentTask =>
                 {
                     byte[] dataToProcess = parentTask.Result;
                     string extension = Path.GetExtension(fileName).ToLower();
-                    string responseMessage = "";
 
                     // Konverzija
                     string textContent = Encoding.UTF8.GetString(dataToProcess);
@@ -150,60 +161,23 @@ namespace ProjekatI
                     {
                         // Za .bin fajl brojimo slova u Base64 tekstu i logujemo u konzolu
                         int characterCount = textContent.Length;
-                        Logger.Log($"[ContinueWith Analytics] Character count for converted BIN->Base64 text: {characterCount} characters.");
+                        Logger.Log($"[ContinueWith Analytics] Number of characters in .bin file: {characterCount}");
                     }
                     else if (extension == ".txt")
                     {
                         // Za .txt fajl brojimo reči i logujemo u konzolu
                         string[] words = textContent.Split(
-                            new[] { ' ', '\t', '\r', '\n' }, 
+                            new[] { ' ', '\t', '\r', '\n' },
                             StringSplitOptions.RemoveEmptyEntries
                         );
                         int wordCount = words.Length;
-                        Logger.Log($"[ContinueWith Analytics] Standard word count for TXT file: {wordCount} words.");
+                        Logger.Log($"[ContinueWith Analytics] Number of words in .txt file: {wordCount}");
                     }
-                });
-
-                string extension = Path.GetExtension(fileName).ToLower();
-
-                if (extension == ".bin")
-                {
-                    context.Response.ContentType = "text/plain; charset=utf-8";
-                    context.Response.AddHeader("Content-Disposition", "attachment; filename=" + Path.ChangeExtension(fileName, ".txt"));
-                }
-                else
-                {
-                    context.Response.ContentType = "application/octet-stream";
-                    context.Response.AddHeader("Content-Disposition", "attachment; filename=" + Path.ChangeExtension(fileName, ".bin"));
-                }
-
-                context.Response.ContentLength64 = fileData.Length;
-                context.Response.StatusCode = (int)HttpStatusCode.OK;
-
-                using(var output = context.Response.OutputStream)
-                {
-                    await output.WriteAsync(fileData, 0, fileData.Length);
-                }
-
-                Logger.Log($"File successfully processed: {fileName}!");
-                /*
-                // ova klasa više ne vodi računa o tome da li je bio pogodak u kešu
-                // sva logika preneta na klasu Cache ovom metodom
-                // obavezno se ime fajlova prevara u mala slova!
-                CachedResponse finalResponse = _cache.GetOrAddSecure(fileName.ToLower(), (name) =>
-                {
-                    // ovde dolazimo ako je promašaj u kešu
-                    isCacheMiss = true;
-                    Logger.Log($"Cache MISS (Processing): {name}");
-
-                    var processingTimer = Stopwatch.StartNew();
-                    byte[] data = _fileConverter.ProcessFile(name);
-                    // nakon obrade promašaja, čuvamo proteklo vreme
-                    processingTimer.Stop();
+                }, TaskContinuationOptions.ExecuteSynchronously);
 
                     string extension = Path.GetExtension(name).ToLower();
-                    string contentType;
-                    string downloadName = null;
+                    string? contentType = null;
+                    string? downloadName = null;
 
                     if (extension == ".bin")
                     {
@@ -211,7 +185,7 @@ namespace ProjekatI
                         contentType = "text/plain; charset=utf-8";
                         downloadName = Path.ChangeExtension(name, ".txt");
                     }
-                    else    // extension == ".txt"
+                    else if (extension == ".txt")
                     {
                         //Tekst smo pretvorili u binarne podatke, pa saljemo kao stream
                         contentType = "application/octet-stream";
@@ -219,8 +193,10 @@ namespace ProjekatI
                         downloadName = Path.ChangeExtension(name, ".bin");
                     }
 
-                    return new CachedResponse(data, contentType, processingTimer.ElapsedMilliseconds, downloadName);
+                    return new CachedResponse(fileData, contentType!, processingTimer.ElapsedMilliseconds, downloadName!);
                 });
+
+                Logger.Log($"File successfully processed: {fileName}!");
 
                 // ubrzanje se računa pre slanja podataka kroz mrežu
                 long logicTime = totalRequestTimer.ElapsedMilliseconds;
@@ -244,14 +220,13 @@ namespace ProjekatI
                 context.Response.ContentLength64 = finalResponse.Data.Length;
                 context.Response.StatusCode = (int)HttpStatusCode.OK;
 
-
                 using (var output = context.Response.OutputStream)
                 {
-                    output.Write(finalResponse.Data, 0, finalResponse.Data.Length);
+                    await output.WriteAsync(finalResponse.Data, 0, finalResponse.Data.Length);
                 }
 
                 Logger.Log(_cache.PrintCacheStats());
-                Logger.Log($"File successfully processed: {fileName}!");*/
+                Logger.Log($"File successfully processed: {fileName}!");
             }
             catch (UnauthorizedAccessException ec)
             {
@@ -314,7 +289,7 @@ namespace ProjekatI
             }
         }
 
-        //graceful shutdown varijanta metode
+        // graceful shutdown varijanta metode
         public void Stop()
         {
             if (!_isRunning)

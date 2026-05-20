@@ -1,7 +1,7 @@
 using System;
 using System.Threading;
 
-namespace ProjekatI
+namespace ProjekatII
 {
     public static class Logger
     {

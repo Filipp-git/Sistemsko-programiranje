@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text;
 
-namespace ProjekatI
+namespace ProjekatII
 {
     //Verzija kesa sa vremenskim isticanjem + sprecavanje kes stampeda
     public class Cache
@@ -13,14 +13,14 @@ namespace ProjekatI
         // - ostali parametri koji smanjuju vreme obrade serveru
         private readonly ConcurrentDictionary<string, CachedResponse> _storage = new();
 
-        // koristimo ConcurrentDictionary i za kolekciju semafora:
+        // koristimo ConcurrentDictionary i objekte za zaključavanje (ne semafore!):
         // samo niti koje imaju isti ključ (traže isti fajl) mogu da se međusobno blokiraju
         // sprečava cache stampede! implementacija u GetOrAddSecure metodi
         private readonly ConcurrentDictionary<string, SemaphoreSlim> _locks = new();
 
         // parametri samog keša
-        // vremensko isticanje - stavke u kešu su validne 5 minuta
-        private readonly TimeSpan _ttl = TimeSpan.FromMinutes(5);
+        // vremensko isticanje - stavke u kešu su validne 0.5 minuta
+        private readonly TimeSpan _ttl = TimeSpan.FromMinutes(0.5);
         // kapacitet - zgodno je da se menja ovde za testiranje
         private readonly int _capacity = 3;
         // za implementaciju fifo algoritma:
@@ -29,15 +29,15 @@ namespace ProjekatI
         // iako koristimo konkurentan queue i dictionary, oni ne obezbđuju atomičnost skupa operacija (u našem slučaju brisanje/ažuriranje stavke u kešu i queue-u)
         private readonly object _evictionLock = new();
 
-        public bool TryGet(string fileName, out CachedResponse response)
+        public bool TryGet(string fileName, out CachedResponse? response)
         {
-            if (_storage.TryGetValue(fileName, out response))
+            if (_storage.TryGetValue(fileName, out response!))
             {
                 // da li je tražena stavka vremenski validna?
                 if (DateTime.Now - response.CreatedAt > _ttl)
                 {
                     // samo Add izbacuje stavke sa početka reda!
-                    _storage.TryRemove(fileName, out _);
+                    //_storage.TryRemove(fileName, out _);
                     response = null;
                     return false;
                 }
@@ -48,12 +48,12 @@ namespace ProjekatI
             return false;
         }
 
-        // todo: popraviti štampanje pri vremenskom isticanju!
         public void Add(string fileName, CachedResponse response)
         {
             lock (_evictionLock)
             {
                 // cache hit: ažuriramo podatke i ne dodajemo opet u queue!
+                // bez obzira da li je u pitanju novi ili istekao fajl
                 if (_storage.ContainsKey(fileName))
                 {
                     _storage[fileName] = response;
@@ -72,12 +72,16 @@ namespace ProjekatI
                             break;
                         }
                     }
+                    else
+                    {
+                        // ne bi nikada trebalo da dođemo u ovaj deo, ali za svaki slučaj
+                        break;
+                    }
                 }
+                // -> dodavanje novih fajlova u queue i keš takođe deo kritične sekcije
+                _storage[fileName] = response;
+                _fileOrder.Enqueue(fileName);
             }
-            // indeksiranje za ConcurrentDictionary znači AddOrUpdate
-            // -> dodavanje u queue i keš
-            _storage[fileName] = response;
-            _fileOrder.Enqueue(fileName);
         }
 
         public String PrintCacheStats()
@@ -94,20 +98,22 @@ namespace ProjekatI
             return sb.ToString();
         }
 
-        public CachedResponse GetOrAddSecure(string fileName, Func<string, CachedResponse> factory)
+        // postala asinhrona!
+        public async Task<CachedResponse> GetOrAddSecureAsync(string fileName, Func<string, Task<CachedResponse>> factory)
         {
             // nema potrebe za zaključavanjem, ako je podatak u kešu i nije istekao
             if (TryGet(fileName, out var existingResponse))
             {
                 Logger.Log($"Cache HIT for: {fileName}");
-                return existingResponse;
+                return existingResponse!;
             }
 
             // todo: dovoljan je lock po imenu fajla, ne treba nam semafor!
-            var fileLock = _locks.GetOrAdd(fileName, _ => new SemaphoreSlim(1, 1));
+            // ali da li to radi asinhrono?
+            var fileLock = _locks.GetOrAdd(fileName, _ => new SemaphoreSlim(1,1));
 
-            // početak kritične sekcije!
-            fileLock.Wait();
+            // početak kritične sekcije po imenu fajla
+            await fileLock.WaitAsync();
             try
             {
                 // šta ako je neka druga nit završila konverziju dok se čekalo da se lock pribavi?
@@ -115,11 +121,10 @@ namespace ProjekatI
                 if (TryGet(fileName, out var delayedResponse))
                 {
                     Logger.Log($"Cache HIT for: {fileName}");
-                    return delayedResponse;
+                    return delayedResponse!;
                 }
-
                 // konverzija, poziv FileConverter metoda
-                var newResponse = factory(fileName);
+                var newResponse = await factory(fileName);
                 // dodavanje u keš
                 Add(fileName, newResponse);
                 return newResponse;
@@ -128,6 +133,7 @@ namespace ProjekatI
             {
                 // kraj kritične sekcije obavezno u finally bloku
                 fileLock.Release();
+                // da li brišemo semafore?
             }
         }
     }
