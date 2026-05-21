@@ -5,7 +5,7 @@ import time
 # Podesavanja adrese
 SERVER_URL = "http://localhost:5050/"
 # Fajlovi koji moraju postojati u Files folderu
-FILES_TO_TEST = ["test.bin", "proba.txt", "ints.bin", "PodaciOStudentima.txt", "large.bin"]
+FILES_TO_TEST = ["test.bin", "proba.txt", "ints.bin", "PodaciOStudentima.txt", "large.bin", "doubles.bin", "primer.txt"]
 
 def simulate_user(user_id, file_name):
     print(f"[User {user_id}] Zahteva fajl: {file_name}")

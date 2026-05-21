@@ -26,7 +26,8 @@ namespace ProjekatII
         // za implementaciju fifo algoritma:
         private readonly ConcurrentQueue<string> _fileOrder = new();
 
-        // iako koristimo konkurentan queue i dictionary, oni ne obezbđuju atomičnost skupa operacija (u našem slučaju brisanje/ažuriranje stavke u kešu i queue-u)
+        // iako koristimo konkurentan queue i dictionary, oni ne obezbđuju atomičnost skupa operacija 
+        // (u našem slučaju brisanje/ažuriranje stavke u kešu i queue-u)
         private readonly object _evictionLock = new();
 
         public bool TryGet(string fileName, out CachedResponse? response)
@@ -59,7 +60,7 @@ namespace ProjekatII
                     _storage[fileName] = response;
                     return;
                 }
-                // cache miss + nema mesta u kešu
+                // nema mesta u kešu
                 while (_storage.Count >= _capacity)
                 {
                     // izbacivanje elementa sa početka reda i iz keša
@@ -78,7 +79,7 @@ namespace ProjekatII
                         break;
                     }
                 }
-                // -> dodavanje novih fajlova u queue i keš takođe deo kritične sekcije
+                // cache miss -> dodavanje novih fajlova u queue i keš takođe deo kritične sekcije
                 _storage[fileName] = response;
                 _fileOrder.Enqueue(fileName);
             }
