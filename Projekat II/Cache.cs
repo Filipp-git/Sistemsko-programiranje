@@ -109,13 +109,10 @@ namespace ProjekatII
                 return existingResponse!;
             }
 
-            // todo: dovoljan je lock po imenu fajla, ne treba nam semafor!
-            // ali da li to radi asinhrono?
-            var fileLock = _locks.GetOrAdd(fileName, _ => new SemaphoreSlim(1,1));
+            var fileLock = _locks.GetOrAdd(fileName, _ => new SemaphoreSlim(1, 1));
 
             // početak kritične sekcije po imenu fajla
-            // Sa dodatim tokenom ne moze se beskonacno 
-            // cekati da se dobije lock!
+            // sa dodatim tokenom ne moze se beskonačno čekati da se dobije lock!
             await fileLock.WaitAsync(token);
 
             try
@@ -137,7 +134,7 @@ namespace ProjekatII
             {
                 // kraj kritične sekcije obavezno u finally bloku
                 fileLock.Release();
-                // da li brišemo semafore?
+                // todo: da li brišemo semafore?
             }
         }
     }

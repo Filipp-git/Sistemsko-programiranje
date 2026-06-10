@@ -17,7 +17,7 @@ namespace ProjekatII
                 // Uzimamo ID stvarne sistemske niti (Managed Thread ID)
                 int threadId = Environment.CurrentManagedThreadId;
 
-                // Opciono: Zadržavamo informaciju da li je u pitanju pozadinska nit iz ThreadPool-a
+                // Čuvamo informaciju da li je u pitanju pozadinska nit iz ThreadPool-a
                 string threadType = Thread.CurrentThread.IsThreadPoolThread ? "PoolThread" : "MainThread";
 
                 Console.WriteLine(
