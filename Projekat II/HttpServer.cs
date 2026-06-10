@@ -64,7 +64,7 @@ namespace ProjekatII
                         if (!_isRunning || token.IsCancellationRequested)
                         {
                             await SendErrorResponseAsync(context, "Server is shutting down.", HttpStatusCode.ServiceUnavailable);
-                            continue;
+                            break;
                         }
 
                         // oduzima se 1 za broj aktivnih zahteva, jer brojač kreće od 1
