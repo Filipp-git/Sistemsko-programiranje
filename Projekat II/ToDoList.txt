@@ -2,7 +2,8 @@
 
 1. Vratiti veci broj zahteva u keš (skriptu?).
 2. Trenutno se statistika ispisuje samo u konzoli (klijent ne vidi), da li je to okej?
-3. Da li nam treba Cancellation Token?
+3. Da li nam treba Cancellation Token? - DAA
+4. Izbaciti nepotrebni Task u HttpServer fajlu.
 
 Završeno:
 - zaključavanje u kešu: samo preko imena fajla je radilo za sinhrone operacija, ostavila sam semafor, pa ćemo da vidimo

@@ -100,7 +100,7 @@ namespace ProjekatII
         }
 
         // postala asinhrona!
-        public async Task<CachedResponse> GetOrAddSecureAsync(string fileName, Func<string, Task<CachedResponse>> factory)
+        public async Task<CachedResponse> GetOrAddSecureAsync(string fileName, Func<string, Task<CachedResponse>> factory, CancellationToken token)
         {
             // nema potrebe za zaključavanjem, ako je podatak u kešu i nije istekao
             if (TryGet(fileName, out var existingResponse))
@@ -114,7 +114,10 @@ namespace ProjekatII
             var fileLock = _locks.GetOrAdd(fileName, _ => new SemaphoreSlim(1,1));
 
             // početak kritične sekcije po imenu fajla
-            await fileLock.WaitAsync();
+            // Sa dodatim tokenom ne moze se beskonacno 
+            // cekati da se dobije lock!
+            await fileLock.WaitAsync(token);
+
             try
             {
                 // šta ako je neka druga nit završila konverziju dok se čekalo da se lock pribavi?

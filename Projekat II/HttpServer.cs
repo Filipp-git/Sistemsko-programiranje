@@ -6,7 +6,7 @@ using System.Net;
 using System.Text;
 using System.Threading;
 
-namespace ProjekatII
+namespace ProjekatII 
 {
     public class HttpServer
     {
@@ -21,6 +21,7 @@ namespace ProjekatII
                                                     // To znaci da bismo u pozadini mogli da imamo neku bibilioteku koja koristi
                                                     // niti iz pool-a i ovim bi smo mogli da je ogranicimo (ako bi smo stavili da je max = 5).
                                                     // Ne diramo sistemske niti, samo ogranicavamo broj zatheva koji obradjujemo.
+        //private CancellationTokenSource _cts;
 
         // Da bi smo implementirali ,,Graceful Shutdown":
         // Pratimo broj trenutno aktivnih niti (zahteva)
@@ -36,29 +37,26 @@ namespace ProjekatII
             _maxConcurrentRequest = maxRequests;
             _rootPath = Path.Combine(Directory.GetCurrentDirectory(), "Files"); //Putanja do root foldera
             _listener = new HttpListener();
-            _listener.Prefixes.Add($"http://localhost:{_port}/"); //Adresa na kojoj server radi
+            _listener.Prefixes.Add($"http://localhost:{_port}/"); // Adresa na kojoj server radi
 
             _fileConverter = new FileConverter(_rootPath);
             _cache = new Cache();
         }
 
-        public void Start()
+        public async Task StartAsync(CancellationToken token)
         {
             _isRunning = true;
             _listener.Start();
+
+            //_cts = CancellationTokenSource.CreateLinkedTokenSource(token);
 
             Logger.Log($"Server is listening on port: {_port}");
             Logger.Log($"Root folder: {_rootPath}");
             Logger.Log("Press Enter for server shutdown...");
 
-            // Prebacujemo izvrsenje na neku nit iz ThreadPool - a
-            // Omogucava asinhrono prihvatanje zahteva, bez obzira kako je Start metoda pozvana van 
-            Task.Run(async () => await ListenAsync());
-        }
-        // metoda je privatna jer se može pozvati samo iz Start metode, koju poziva Main
-        private async Task ListenAsync()
-        {
-            while (_isRunning)
+            // Vrti petlju sve dok ne stigne signal
+            // tokena da treba da se prestane
+            while (!token.IsCancellationRequested)
             {
                 try
                 {
@@ -66,14 +64,27 @@ namespace ProjekatII
                     // koristimo asinhronu verziju, kod koje se nit ne blokira dok ne dodje zahtev
                     // Nit pokrene metodu, vrati u ThreadPool ili da radi neki drugi posao, a po pristizanju zahteva
                     // vrsi se budjenje, prihvatanje i obrada zahteva
-                    HttpListenerContext context = await _listener.GetContextAsync();
+                    var contextTask = _listener.GetContextAsync();
+
+                    // Proverava se da li se stigao novi zahtev za
+                    // obradu ili Cancel zahtev od tokena
+                    var completed = await Task.WhenAny(contextTask, Task.Delay(Timeout.Infinite, token));
+
+                    // Ako je stigao zahtev za prekidanjem 
+                    // izlazimo iz beskonacne petlje
+                    if(completed != contextTask)
+                        break;
+
+                    // Odnosno stigao je zahtev, pa uzmimamo njega
+                    HttpListenerContext context = await contextTask;
 
                     if (_activeRequests.CurrentCount <= _maxConcurrentRequest - 1 && _activeRequests.TryAddCount())
                     {
                         Logger.Log("New client request received");
 
-                        _ = Task.Run(async () => await HandleRequestAsync(context));
-                        // Ako bi ovde stavili await, server bi postao sekvencijalan!
+                        _ = Task.Run(async () => await HandleRequestAsync(context, token));
+                        // Ako bi ovde stavili await, server bi postao sekvencijalan!!
+                        // Dodatno prosledjujemo sada i token (propagacija)
                     }
                     else
                     {
@@ -96,7 +107,8 @@ namespace ProjekatII
             }
         }
 
-        private async Task HandleRequestAsync(HttpListenerContext context)
+        // Dodate su provere tokena u kriticnim tackama
+        private async Task HandleRequestAsync(HttpListenerContext context, CancellationToken token)
         {
             // Pokrecemo tajmer koji ce da eveidentira koliko je tasku bilo potrebno vremena da obavi zahtev
             // To ce nam mozda biti zgodno da vidimo koliko je brze kada se procita iz kesa, odnosno kada imamo kes promasaj
@@ -112,6 +124,10 @@ namespace ProjekatII
                 // trebalo bi da se fajl preuzme i tek onda server ugasi
                 // Logger.Log("Simulation of a large file processing (4s)");
                 // Thread.Sleep(4000);
+
+                // Proverava da li je doslo do pojave signala
+                // prekida
+                token.ThrowIfCancellationRequested();
 
                 // http://localhost:5050/test.txt => ovde mi uzimamo sadrzaj posle znaka "/", sto je ime fajla koji obadjujemo
                 string fileName = context.Request.Url!.AbsolutePath.TrimStart('/');
@@ -131,12 +147,13 @@ namespace ProjekatII
                 }
 
                 Logger.Log($"Request started for file: {fileName}");
+
                 // prvo potražimo u kešu, a tek onda konvertujemo po potrebi
                 string searchkey = fileName.ToLower();
 
                 // ova klasa više ne vodi računa o tome da li je bio pogodak u kešu
                 // sva logika preneta na klasu Cache ovom metodom
-                // obavezno se ime fajlova prevara u mala slova!
+                // obavezno se ime fajlova pretvara u mala slova!
                 CachedResponse finalResponse = await _cache.GetOrAddSecureAsync(searchkey, async (name) =>
                 {
                     // ovde dolazimo ako je promašaj u kešu
@@ -144,57 +161,57 @@ namespace ProjekatII
                     Logger.Log($"Cache MISS (Processing): {name}");
 
                     var processingTimer = Stopwatch.StartNew();
-                    byte[] fileData = await _fileConverter.ProcessFileAsync(name);
+                    byte[] fileData = await _fileConverter.ProcessFileAsync(name, token);
                     // nakon obrade promašaja, čuvamo proteklo vreme
                     processingTimer.Stop();
 
                     // kontinuacije pomerene!
                     _ = Task.FromResult(fileData).ContinueWith(async parentTask =>
-                {
-                    byte[] dataToProcess = parentTask.Result;
-                    string extension = Path.GetExtension(fileName).ToLower();
-
-                    // Konverzija
-                    string textContent = Encoding.UTF8.GetString(dataToProcess);
-
-                    if (extension == ".bin")
                     {
-                        // Za .bin fajl brojimo slova u Base64 tekstu i logujemo u konzolu
-                        int characterCount = textContent.Length;
-                        Logger.Log($"[ContinueWith Analytics] Number of characters in .bin file: {characterCount}");
-                    }
-                    else if (extension == ".txt")
-                    {
-                        // Za .txt fajl brojimo reči i logujemo u konzolu
-                        string[] words = textContent.Split(
-                            new[] { ' ', '\t', '\r', '\n' },
-                            StringSplitOptions.RemoveEmptyEntries
-                        );
-                        int wordCount = words.Length;
-                        Logger.Log($"[ContinueWith Analytics] Number of words in .txt file: {wordCount}");
-                    }
-                }, TaskContinuationOptions.ExecuteSynchronously);
+                        byte[] dataToProcess = parentTask.Result;
+                        string extension = Path.GetExtension(fileName).ToLower();
 
-                    string extension = Path.GetExtension(name).ToLower();
-                    string? contentType = null;
-                    string? downloadName = null;
+                        // Konverzija
+                        string textContent = Encoding.UTF8.GetString(dataToProcess);
 
-                    if (extension == ".bin")
-                    {
-                        //Binarni fajl smo pretvorili u Base64 tekst, pa kazemo browseru da je to tekst
-                        contentType = "text/plain; charset=utf-8";
-                        downloadName = Path.ChangeExtension(name, ".txt");
-                    }
-                    else if (extension == ".txt")
-                    {
-                        //Tekst smo pretvorili u binarne podatke, pa saljemo kao stream
-                        contentType = "application/octet-stream";
-                        //Eksplicitno kazemo browser-u da se fajl preuzme sa ekstenzijom .bin
-                        downloadName = Path.ChangeExtension(name, ".bin");
-                    }
+                        if (extension == ".bin")
+                        {
+                            // Za .bin fajl brojimo slova u Base64 tekstu i logujemo u konzolu
+                            int characterCount = textContent.Length;
+                            Logger.Log($"[ContinueWith Analytics] Number of characters in .bin file: {characterCount}");
+                        }
+                        else if (extension == ".txt")
+                        {
+                            // Za .txt fajl brojimo reči i logujemo u konzolu
+                            string[] words = textContent.Split(
+                                new[] { ' ', '\t', '\r', '\n' },
+                                StringSplitOptions.RemoveEmptyEntries
+                            );
+                            int wordCount = words.Length;
+                            Logger.Log($"[ContinueWith Analytics] Number of words in .txt file: {wordCount}");
+                        }
+                    }, TaskContinuationOptions.ExecuteSynchronously);
 
-                    return new CachedResponse(fileData, contentType!, processingTimer.ElapsedMilliseconds, downloadName!);
-                });
+                        string extension = Path.GetExtension(name).ToLower();
+                        string? contentType = null;
+                        string? downloadName = null;
+
+                        if (extension == ".bin")
+                        {
+                            // Binarni fajl smo pretvorili u Base64 tekst, pa kazemo browseru da je to tekst
+                            contentType = "text/plain; charset=utf-8";
+                            downloadName = Path.ChangeExtension(name, ".txt");
+                        }
+                        else if (extension == ".txt")
+                        {
+                            // Tekst smo pretvorili u binarne podatke, pa saljemo kao stream
+                            contentType = "application/octet-stream";
+                            // Eksplicitno kazemo browser-u da se fajl preuzme sa ekstenzijom .bin
+                            downloadName = Path.ChangeExtension(name, ".bin");
+                        }
+
+                        return new CachedResponse(fileData, contentType!, processingTimer.ElapsedMilliseconds, downloadName!);
+                    }, token);
 
                 Logger.Log($"File successfully processed: {fileName}!");
 
@@ -243,6 +260,10 @@ namespace ProjekatII
                 Logger.Log($"File not found: {ec.Message}", "ERROR");
                 SendErrorResponse(context, ec.Message, HttpStatusCode.NotFound);
             }
+            catch (OperationCanceledException)
+            {
+                Logger.Log("Request cancelled due to server shutdown", "INFO");
+            }
             catch (Exception ec)
             {
                 //Console.WriteLine(ec.Message);
@@ -256,7 +277,7 @@ namespace ProjekatII
                 totalRequestTimer.Stop();
                 Logger.Log($"Total Request Trip: {totalRequestTimer.ElapsedMilliseconds} ms");
 
-                _activeRequests.Signal(); //Nit obavestava da se zavrsila obradu zahteva (smanjuje se broj trenutno aktivnih zahteva, čak i ako nešto pođe po zlu)
+                _activeRequests.Signal(); // Nit obavestava da se zavrsila obradu zahteva (smanjuje se broj trenutno aktivnih zahteva, čak i ako nešto pođe po zlu)
                 context.Response.Close();
             }
         }
@@ -298,13 +319,14 @@ namespace ProjekatII
             _isRunning = false;
             Logger.Log("Shutting down... waiting for active requests to finish.");
 
+            _listener.Stop();
+
             // server više ne prihvata nove zahteve...
             _activeRequests.Signal(); // Obavestavamo da se i poslednja nit gasi
 
             bool gracefulShutdown = _activeRequests.Wait(5000);
 
             // ...ali se gasi tek nakon što obradi postojeće zahteve
-            _listener.Stop();
             _listener.Close();
 
             if (gracefulShutdown)

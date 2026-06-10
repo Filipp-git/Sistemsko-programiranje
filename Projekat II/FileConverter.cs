@@ -15,10 +15,12 @@ namespace ProjekatII
         }
 
         // Metoda koja radi sa I/O, pa ima smisla da bude async
-        public async Task<byte[]> ProcessFileAsync(string fileName)
+        public async Task<byte[]> ProcessFileAsync(string fileName, CancellationToken token)
         {
             // primer zlonamernog url-a:
             // http://localhost:5050/%2e%2e%2f%2e%2e%2fwindows/win.ini
+
+            token.ThrowIfCancellationRequested();
 
             // izdvajamo apsolutnu putanju do root foldera, koja mora da se završi sa / ili \
             string absoluteRoot = Path.GetFullPath(_rootPath);
@@ -30,6 +32,8 @@ namespace ProjekatII
             string safeFileName = Path.GetFileName(fileName);
             // spajamo root i ime fajla, ali bez .. ili relativnih segmenata
             string fullPath = Path.GetFullPath(Path.Combine(absoluteRoot, safeFileName));
+
+            token.ThrowIfCancellationRequested();
 
             // da li je dobijena putanja unutar root foldera? ili je neko pokusao nesto sumjnivo
             if (!fullPath.StartsWith(absoluteRoot, StringComparison.OrdinalIgnoreCase))
@@ -48,10 +52,14 @@ namespace ProjekatII
             using (FileStream sourceStream = new FileStream(fullPath, FileMode.Open, FileAccess.Read,
                 FileShare.Read, bufferSize: 4096, useAsync: true))
             {
+                token.ThrowIfCancellationRequested();
+
                 // Citanje sadrzaja
                 data = new byte[sourceStream.Length]; // data ce biti dovoljne velicine da prihvati ceo sadrzaj fajla
                 await sourceStream.ReadExactlyAsync(data, 0, (int)sourceStream.Length);
             }
+
+            token.ThrowIfCancellationRequested();
 
             string extension = Path.GetExtension(fullPath).ToLower();
 
