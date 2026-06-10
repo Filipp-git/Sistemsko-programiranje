@@ -52,7 +52,7 @@ namespace ProjekatII
             Logger.Log("Press Enter for server shutdown...");
 
             // lambda koja se poziva kada je CancellationToken cancelled
-            using (token.Register(() => { try { _listener.Stop(); } catch { } }))
+            using (token.Register(() => Stop()))
             {
                 // sve dok server radi i ne stigne signal tokena da treba da se prestane
                 while (_isRunning && !token.IsCancellationRequested)
@@ -61,28 +61,24 @@ namespace ProjekatII
                     {
                         HttpListenerContext context = await _listener.GetContextAsync();
 
-                        lock (_activeRequests)
+                        if (!_isRunning || token.IsCancellationRequested)
                         {
-                            // novi zahtevi se odmah odbijaju pri gašenju servera
-                            if (!_isRunning || token.IsCancellationRequested)
-                            {
-                                SendErrorResponse(context, "Server is shutting down.", HttpStatusCode.ServiceUnavailable);
-                                continue;
-                            }
+                            await SendErrorResponseAsync(context, "Server is shutting down.", HttpStatusCode.ServiceUnavailable);
+                            continue;
+                        }
 
-                            // CurrentCount počinje od 1, oduzima se 1 za broj aktivnih zahteva
-                            int currentActive = _activeRequests.CurrentCount - 1;
+                        // oduzima se 1 za broj aktivnih zahteva, jer brojač kreće od 1
+                        int currentActive = _activeRequests.CurrentCount - 1;
 
-                            if (currentActive < _maxConcurrentRequest)
-                            {
-                                _activeRequests.AddCount();
-                                _ = HandleRequestAsync(context, token);
-                            }
-                            else
-                            {
-                                Logger.Log($"Request rejected: Max capacity reached ({_maxConcurrentRequest})", "WARNING");
-                                SendErrorResponse(context, "Server busy.", HttpStatusCode.ServiceUnavailable);
-                            }
+                        if (currentActive < _maxConcurrentRequest)
+                        {
+                            _activeRequests.AddCount();
+                            _ = HandleRequestAsync(context, token);
+                        }
+                        else
+                        {
+                            Logger.Log($"Request rejected: Max capacity reached ({_maxConcurrentRequest})", "WARNING");
+                            await SendErrorResponseAsync(context, "Server busy.", HttpStatusCode.ServiceUnavailable);
                         }
                     }
                     // Umesto da pozivamo blokirajucu metodu za hvatanje zahteva
@@ -158,14 +154,14 @@ namespace ProjekatII
                 // browser automatski traži ovaj fajl (ikonicu), ne obrađujemo ga
                 if (string.Equals(fileName, "favicon.ico", StringComparison.OrdinalIgnoreCase))
                 {
-                    context.Response.Close();
+                    //context.Response.Close();
                     return;
                 }
 
                 if (string.IsNullOrEmpty(fileName))
                 {
                     Logger.Log($"Empty file name in request!", "WARNING");
-                    SendErrorResponse(context, "Please define file name in URL request!", HttpStatusCode.BadRequest);
+                    await SendErrorResponseAsync(context, "Please define file name in URL request!", HttpStatusCode.BadRequest);
                     return;
                 }
 
@@ -259,17 +255,17 @@ namespace ProjekatII
             catch (UnauthorizedAccessException ec)
             {
                 Logger.Log($"Attempt to violate server security: {ec.Message}", "ERROR");
-                SendErrorResponse(context, "Access denied", HttpStatusCode.Forbidden);
+                await SendErrorResponseAsync(context, "Access denied", HttpStatusCode.Forbidden);
             }
             catch (NotSupportedException ec)
             {
                 Logger.Log($"Error on server side: {ec.Message}", "ERROR");
-                SendErrorResponse(context, "Invalid file extension!", HttpStatusCode.NotFound);
+                await SendErrorResponseAsync(context, "Invalid file extension!", HttpStatusCode.NotFound);
             }
             catch (FileNotFoundException ec)
             {
                 Logger.Log($"File not found: {ec.Message}", "ERROR");
-                SendErrorResponse(context, ec.Message, HttpStatusCode.NotFound);
+                await SendErrorResponseAsync(context, ec.Message, HttpStatusCode.NotFound);
             }
             catch (OperationCanceledException)
             {
@@ -278,7 +274,7 @@ namespace ProjekatII
             catch (Exception ec)
             {
                 Logger.Log($"Error on server side: {ec.Message}", "ERROR");
-                SendErrorResponse(context, "Server error!", HttpStatusCode.InternalServerError);
+                await SendErrorResponseAsync(context, "Server error!", HttpStatusCode.InternalServerError);
             }
             finally
             {
@@ -289,17 +285,15 @@ namespace ProjekatII
 
                 try { context.Response.Close(); } catch { }
 
-                lock (_activeRequests)
+                try
                 {
-                    if (_activeRequests.CurrentCount > 0)
-                    {
-                        _activeRequests.Signal();
-                    }
+                    _activeRequests.Signal();
                 }
+                catch (ObjectDisposedException) { }
             }
         }
 
-        private void SendErrorResponse(HttpListenerContext context, string message, HttpStatusCode code)
+        private async Task SendErrorResponseAsync(HttpListenerContext context, string message, HttpStatusCode code)
         {
             try
             {
@@ -312,7 +306,7 @@ namespace ProjekatII
 
                 using (Stream output = context.Response.OutputStream)
                 {
-                    output.Write(errorData, 0, errorData.Length);
+                    await output.WriteAsync(errorData, 0, errorData.Length);
                 }
             }
             catch (Exception ec)
@@ -333,20 +327,16 @@ namespace ProjekatII
             if (!_isRunning)
                 return;
 
-            lock (_activeRequests)
-            {
-                _isRunning = false;
-            }
+            _isRunning = false;
+
             Logger.Log("Shutting down... waiting for active requests to finish.");
 
             // server više ne prihvata nove zahteve...
-            lock (_activeRequests)
+            try
             {
-                if (_activeRequests.CurrentCount > 0)
-                {
-                    _activeRequests.Signal();
-                }
+                _activeRequests.Signal();
             }
+            catch (ObjectDisposedException) { }
 
             // čekamo 5s da završe započete operacije
             bool gracefulShutdown = _activeRequests.Wait(5000);
