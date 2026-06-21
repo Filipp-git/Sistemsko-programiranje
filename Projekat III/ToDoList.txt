@@ -24,3 +24,6 @@ AIzaSyDFsEV-cCPLRfBMxTthBdurPr-7da-B8Jw
 6. Proveriti zasto se reci koje pocinju velikim slovom ne broje kako treba.
 
 7. Graceful shutdown?
+
+8. Implementacije koje uključuju multithreading kroz kombinaciju Rx Scheduler-a i Akka
+    Dispatcher-a biće ocenjene većim brojem poena.
