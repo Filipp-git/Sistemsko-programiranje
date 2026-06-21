@@ -1,0 +1,26 @@
+*Ce ga napravimo!*
+
+
+1. Potrebno instalirati:
+
+dotnet add package Akka
+dotnet add package Akka.Routing
+dotnet add package System.Reactive
+dotnet add package Microsoft.AspNetCore.Hosting
+dotnet add package Microsoft.AspNetCore.Server.Kestrel
+dotnet add package Microsoft.Extensions.Hosting
+
+2. API KEY:
+AIzaSyDFsEV-cCPLRfBMxTthBdurPr-7da-B8Jw
+
+3. Da li se API KEY ubacuje na pravo mesto? 
+    |-> Nisam probao bez njega
+
+4. Primer poziva:
+    http://localhost:5000/books/Stephen%20King
+
+5. Dodati Logger.
+
+6. Proveriti zasto se reci koje pocinju velikim slovom ne broje kako treba.
+
+7. Graceful shutdown?
