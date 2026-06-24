@@ -19,11 +19,11 @@ AIzaSyDFsEV-cCPLRfBMxTthBdurPr-7da-B8Jw
 4. Primer poziva:
     http://localhost:5000/books/Stephen%20King
 
-5. Dodati Logger.
-
-6. Proveriti zasto se reci koje pocinju velikim slovom ne broje kako treba.
-
-7. Graceful shutdown?
-
-8. Implementacije koje uključuju multithreading kroz kombinaciju Rx Scheduler-a i Akka
+5. Implementacije koje uključuju multithreading kroz kombinaciju Rx Scheduler-a i Akka
     Dispatcher-a biće ocenjene većim brojem poena.
+
+6. Dorada obrade izuzetka.
+
+7. Testiranje rada.
+
+8. Logika brojanja opet nesto zeza D:
