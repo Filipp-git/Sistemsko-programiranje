@@ -1,0 +1,26 @@
+Web server implementirati kao konzolnu aplikaciju koja loguje sve primljene zahteve i informacije 
+o njihovoj obradi (da li je došlo do greške, da li je zahtev uspešno obrađen i ostale ključne detalje). 
+Kao klijentsku aplikaciju možete koristiti Web browser ili možete po potrebi kreirati zasebnu 
+konzolnu aplikaciju. 
+Za realizaciju koristiti biblioteke Reactive Extensions for .NET (Rx.NET) i Akka.NET. Rx.NET se 
+koristi za pozivanje eksternih API-ja, osnovno filtriranje i mapiranje dobijenih podataka, nakon 
+čega emituje podatke kao poruke ka aktorima.  
+Aktori (Akka.NET) primaju te poruke, ažuriraju sopstveno interno stanje i implementiraju 
+kompleksniju obradu podataka. Web server prevodi primljene HTTP zahteve u poruke koje se šalju 
+odgovarajućim aktorima, a rezultati dobijeni od aktora vraćaju se korisniku kao HTTP odgovor.  
+Korišćenje obe biblioteke je neophodno. Po potrebi možete uključiti i dodatne biblioteke zavisno 
+od zahteva navedenih u zadacima — biblioteke su date kao preporuka, dozvoljena je upotreba i 
+drugih rešenja (na primer za Sentiment analizu, Topic Modeling). 
+Implementacije koje uključuju multithreading kroz kombinaciju Rx Scheduler-a i Akka 
+Dispatcher-a biće ocenjene većim brojem poena. 
+
+Rx.NET komponenta periodično upućuje zahteve ka odgovarajućem eksternom API-ju, vrši osnovnu obradu dobijenih podataka (filtriranje, mapiranje i izdvajanje relevantnih informacija) i zatim ih emituje kao poruke ka odgovarajućim aktorima.
+Aktori (Akka.NET) čuvaju interno stanje aplikacije koje se kontinuirano ažurira na osnovu poruka pristiglih od Rx komponente. Pored održavanja stanja, aktori implementiraju složenije operacije definisane zadatkom.
+Web server ne komunicira direktno sa eksternim API-jima. Njegova uloga je da prima zahteve korisnika, prevodi ih u poruke namenjene odgovarajućim aktorima i vraća rezultate dobijene od aktora. Na ovaj način korisnik dobija trenutno stanje koje aktori održavaju, dok se njegovo ažuriranje odvija nezavisno i periodično kroz Rx.NET tokove.
+
+Koristeći Rx.NET i Google Books API, prikupiti informacije o knjigama za zadatog autora. Rx 
+vrši osnovno mapiranje dobijenih podataka i emituje ih kao poruke aktorima, uključujući naslov 
+(title) i opis (description) knjige. Aktori čuvaju podatke o knjigama kao interno stanje i za svaki 
+opis određuju broj reči koje počinju velikim slovom, kao i broj jedinstvenih reči. Knjige sortirati 
+prema prethodno određenom broju reči. Web server prima zahteve sa imenom autora i prevodi ih 
+u poruke aktorima. Prikazati dobijene rezultate, kao i ukupan broj pronađenih knjiga.  

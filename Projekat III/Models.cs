@@ -1,5 +1,7 @@
 namespace Projekat3.Models;
 
+// record-i su immutable strukture podataka!
+
 // Google API Models:
 public record GoogleBooksResponse(List<Item> Items);
 public record Item(string Id, VolumeInfo VolumeInfo);
