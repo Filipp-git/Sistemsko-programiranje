@@ -17,3 +17,9 @@ public record GoogleBookDetailResponse(VolumeInfo VolumeInfo);
 public record StartPeriodicFetch(string Author, TimeSpan Interval);
 public record FetchTick;
 public record GetCurrentStateRequest(string Author);
+
+// kontrolne poruke: kada je serija podataka počela?
+// kada se završila?
+// govori aktoru kada da sortira knjige
+public record StreamStartedMessage(string Author);
+public record StreamFinishedMessage(string Author, int TotalBooks);

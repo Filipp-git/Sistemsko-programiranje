@@ -89,8 +89,9 @@ public class Server
                 // ne generise rezultat u roku od 5 s
                 response.StatusCode = 504; // Gateway Timeout ako ruter zakaze
             }
-            catch (Exception)
+            catch (Exception e)
             {
+                Console.WriteLine($"[SERVER ERROR] Unhandled exception: {e.ToString()}");
                 response.StatusCode = 500;
             }
         }
