@@ -15,59 +15,64 @@ namespace Projekat3.Actors;
 public class BookManagerActor : ReceiveActor
 {
     private readonly ILoggingAdapter _log = Context.GetLogger();
-    private readonly BookService _bookService =
-        new(new HttpClient { Timeout = TimeSpan.FromSeconds(10) });
+    private readonly BookService _bookService = new(new HttpClient { Timeout = TimeSpan.FromSeconds(10) });
 
+    // interno stanje aktora
     private readonly string _currentAuthor;
-
-    private List<BookDetails> _cachedBooks = new();
+    private List<BookDetails> _cachedBooks = [];
     private int _totalBooksCount = 0;
+
     private bool _isDataInitialized = false;
 
     private IDisposable? _rxSubscription;
 
-    // Pending HTTP request (only ONE logical state, no list)
+    // http zahtev na čekanju
     private IActorRef? _waitingHttpRequester;
 
     public BookManagerActor(string author)
     {
         _currentAuthor = author.ToLower();
-        Console.WriteLine($"CTOR BookManagerActor: {author}");
+        _log.Info($"Konstruktor BookManagerActor: {author}");
 
-        // 1) Start stream
+        // poečetak toka
         Receive<StartPeriodicFetch>(start =>
         {
             if (_rxSubscription != null) return;
 
-            _log.Info($"[TAJMER] Starting Rx for {_currentAuthor}");
+            _log.Info($"[TAJMER] Rx pokrenut za: {_currentAuthor}");
 
+            // referenca obavezno prekopirana van callback f-je
             var self = Self;
 
+            // rx emituje podatke kao poruke aktorima
             _rxSubscription =
                 _bookService.WatchBooks(_currentAuthor, start.Interval)
-                    .Subscribe(
-                        books => self.Tell(new BooksFetched(books)),
-                        ex => _log.Error(ex, "Rx error")
-                    );
+                   .Subscribe(books =>
+                    {
+                        _log.Info($"[RX NIT] {Thread.CurrentThread.ManagedThreadId}");
+                        self.Tell(new BooksFetched(books));
+                    });
         });
 
-        // 2) HTTP request
+        // HTTP zahtev
         Receive<GetCurrentStateRequest>(_ =>
         {
             if (_isDataInitialized)
             {
+                _log.Info($"[AKKA DISPATCHER NIT - HTTP] {Thread.CurrentThread.ManagedThreadId}");
                 Sender.Tell(BuildResult());
                 return;
             }
-
-            // store only ONE waiter (latest request wins)
             _waitingHttpRequester = Sender;
         });
 
-        // 3) async pipeline via PipeTo
+        // aktori primaju poruke
         Receive<BooksFetched>(msg =>
         {
+            _log.Info($"[AKKA DISPATCHER NIT - PROCES] {Thread.CurrentThread.ManagedThreadId}");
+
             var books = msg.Books;
+            _log.Info($"Broj učitanih knjiga uz Rx: {msg.Books.Count}.");
 
             var task = Task.Run(() =>
             {
@@ -94,32 +99,53 @@ public class BookManagerActor : ReceiveActor
                 return new ProcessingResult(books.Count, processed);
             });
 
-            // ⭐ THE KEY FIX
-            task.PipeTo(Self, success: result => new ProcessedResultReady(result));
+            // izlaz taska ide direktno u mailbox primaoca, nakon završetka taska
+            task.PipeTo(
+                Self,
+                success: result => new ProcessedResultReady(result),
+                failure: ex => new ProcessingFailed(ex)
+                );
         });
 
-        // 4) finalize processing inside actor thread
+        Receive<ProcessingFailed>(m =>
+        {
+            _log.Error(m.Exception, "Obrada neuspešna.");
+
+            if (_waitingHttpRequester != null)
+            {
+                // Status.Failure je akka poruka: javlja pošiljaocu da je obrada neuspešna
+                _waitingHttpRequester.Tell(new Status.Failure(m.Exception));
+
+                _waitingHttpRequester = null;
+            }
+        });
+
+        // kraj obrade unutar aktora
         Receive<ProcessedResultReady>(msg =>
         {
+            // ažuriranje internog stanja aktora
             _totalBooksCount = msg.Result.TotalBooks;
             _cachedBooks = msg.Result.Books;
             _isDataInitialized = true;
 
+            _log.Info($"Ažuriran keš autora '{_currentAuthor}': {_cachedBooks.Count} obrađenih knjiga.");
+
             var result = BuildResult();
 
-            // reply to waiting HTTP request (if any)
+            // odgovori http zahtevu koji čeka (ako postoji)
             _waitingHttpRequester?.Tell(result);
             _waitingHttpRequester = null;
         });
     }
 
-    private ProcessingResult BuildResult()
-        => new(_totalBooksCount, _cachedBooks);
+    private ProcessingResult BuildResult() => new(_totalBooksCount, _cachedBooks);
 
     // messages
     public record BooksFetched(List<BookData> Books);
     public record ProcessedResultReady(ProcessingResult Result);
 
+    // dodat akka dispatcher iz akka.conf
     public static Props Props(string author)
-        => Akka.Actor.Props.Create(() => new BookManagerActor(author));
+         => Akka.Actor.Props.Create(() => new BookManagerActor(author))
+        .WithDispatcher("akka.actor.book-dispatcher");
 }

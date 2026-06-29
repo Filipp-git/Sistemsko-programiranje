@@ -10,19 +10,19 @@ dotnet add package Microsoft.AspNetCore.Hosting
 dotnet add package Microsoft.AspNetCore.Server.Kestrel
 dotnet add package Microsoft.Extensions.Hosting
 
-2. API KEY:
-AIzaSyDFsEV-cCPLRfBMxTthBdurPr-7da-B8Jw
+2. API KEY prebaciti u .env
 
 3. Da li se API KEY ubacuje na pravo mesto? 
-    |-> Nisam probao bez njega
+-> da! u suštini može i bez njega, ali je rate limit očajan <3
 
 4. Primer poziva:
     http://localhost:5000/books/Stephen%20King
 
-5. Implementacije koje uključuju multithreading kroz kombinaciju Rx Scheduler-a i Akka
-    Dispatcher-a biće ocenjene većim brojem poena.
+5. Implementacije koje uključuju multithreading kroz kombinaciju Rx Scheduler-a i Akka Dispatcher-a biće ocenjene većim brojem poena. 
+-> done!
 
 6. Dorada obrade izuzetka.
+-> dodat record ProcessingFailed i logovi svuda
 
 7. Testiranje rada.
 
