@@ -14,14 +14,14 @@ namespace Projekat3;
 public class Server
 {
     // Glavni kontejner i okruzenje za sve aktore
-    private ActorSystem _actorSystem;
+    private ActorSystem? _actorSystem;
 
     // Glavni aktor, odnosno jedini za kog mi (aplikacija) znamo, 
     // on posle kreira pojedinacne
-    private IActorRef _bookCoordinator;
+    private IActorRef? _bookCoordinator;
 
     // Osluskuje zahteve klijenta
-    private HttpListener _listener;
+    private HttpListener? _listener;
     private bool _isRunning = true;
 
     // pomoćna metoda za obradu izuzetaka pri obradi zahteva

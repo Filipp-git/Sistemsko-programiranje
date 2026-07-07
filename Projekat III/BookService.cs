@@ -26,7 +26,21 @@ public class BookService
         // interval garantuje periodično osvežavanje
         return Observable.Interval(interval, TaskPoolScheduler.Default) // rx scheduler dodat
             .StartWith(0L)
-            .SelectMany(_ => Observable.FromAsync(() => Fetch(author)));
+            .SelectMany(_ => Observable.FromAsync(() => Fetch(author))
+             .Catch((Exception ex) =>
+            {
+                if (ex is HttpRequestException httpEx)
+                {
+                    Console.WriteLine($"[Rx Warning] HTTP greška za {author}: status={httpEx.StatusCode}, msg={httpEx.Message}");
+                }
+                else
+                {
+                    Console.WriteLine($"[Rx Warning] {ex.GetType().Name} za {author}: {ex.Message}");
+                }
+                // Vracamo praznu listu, a tajmer nastavlja da radi
+                // pa se posle 30s ponovo salje zahtev
+                return Observable.Return(new List<BookData>());
+            }));
     }
 
     // razdvojeni konceptualno!

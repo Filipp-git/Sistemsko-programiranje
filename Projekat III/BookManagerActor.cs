@@ -15,7 +15,7 @@ namespace Projekat3.Actors;
 public class BookManagerActor : ReceiveActor
 {
     private readonly ILoggingAdapter _log = Context.GetLogger();
-    private readonly BookService _bookService = new(new HttpClient { Timeout = TimeSpan.FromSeconds(10) });
+    private readonly BookService _bookService = new(new HttpClient { Timeout = TimeSpan.FromSeconds(20) });
 
     // interno stanje aktora
     private readonly string _currentAuthor;
@@ -73,6 +73,18 @@ public class BookManagerActor : ReceiveActor
 
             var books = msg.Books;
             _log.Info($"Broj učitanih knjiga uz Rx: {msg.Books.Count}.");
+
+            if (books.Count == 0)
+            {
+                _log.Warning($"[MREŽA] Osvežavanje za '{_currentAuthor}' nije uspelo. Zadržavam stare keširane podatke.");
+                
+                // Ako je klijent poslao HTTP zahtev bas u ovom trenutku,
+                //  odgovori mu starim kesom
+                _waitingHttpRequester?.Tell(BuildResult());
+                _waitingHttpRequester = null;
+                return; // Prekidamo izvravanje, ne idemo u Task.Run!
+                        // Da ne bi obrisali kes!
+            }
 
             var task = Task.Run(() =>
             {
@@ -148,4 +160,19 @@ public class BookManagerActor : ReceiveActor
     public static Props Props(string author)
          => Akka.Actor.Props.Create(() => new BookManagerActor(author))
         .WithDispatcher("akka.actor.book-dispatcher");
+
+    protected override void PostStop()
+    {  
+        _log.Info($"[GAŠENJE] Aktor za autora '{_currentAuthor}' se gasi. Čistim resurse...");
+
+        // Gasimo Rx pretplatu i zaustavljamo tajmer 
+        // da ne curi memorija
+        if (_rxSubscription != null)
+        {
+            _rxSubscription.Dispose();
+            _log.Info($"[GAŠENJE] Rx pretplata uspešno poništena za: {_currentAuthor}");
+        }
+
+        base.PostStop();
+    }
 }
